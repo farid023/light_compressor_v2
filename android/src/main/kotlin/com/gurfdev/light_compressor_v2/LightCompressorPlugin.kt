@@ -35,6 +35,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
+import kotlin.math.roundToInt
 
 /** Flutter plugin that bridges the LightCompressor Android library to Dart. */
 class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
@@ -112,7 +113,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
         val isSharedStorage: Boolean        = call.argument("isSharedStorage")!!
         val disableAudio: Boolean           = call.argument("disableAudio")!!
         val keepOriginalResolution: Boolean = call.argument("keepOriginalResolution")!!
-        val videoBitrateInMbps: Int?        = call.argument("videoBitrateInMbps")
+        val videoBitrateInMbps: Number?     = call.argument("videoBitrateInMbps")
         val targetSizeBytes: Long?          = call.argument<Number>("targetSizeBytes")?.toLong()
         val twoPass: Boolean                = call.argument("twoPass") ?: false
         val videoFps: Int?                  = call.argument("videoFps")
@@ -188,7 +189,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
         result: Result,
         quality: VideoQuality,
         isMinBitrateCheckEnabled: Boolean,
-        videoBitrateInMbps: Int?,
+        videoBitrateInMbps: Number?,
         targetSizeBytes: Long?,
         twoPass: Boolean,
         videoFps: Int?,
@@ -311,7 +312,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
         val isSharedStorage: Boolean = call.argument("isSharedStorage") ?: true
         val disableAudio: Boolean = call.argument("disableAudio") ?: false
         val keepOriginalResolution: Boolean = call.argument("keepOriginalResolution") ?: false
-        val videoBitrateInMbps: Int? = call.argument("videoBitrateInMbps")
+        val videoBitrateInMbps: Number? = call.argument("videoBitrateInMbps")
         val targetSizeBytes: Long? = call.argument<Number>("targetSizeBytes")?.toLong()
         val twoPass: Boolean = call.argument("twoPass") ?: false
         val videoFps: Int? = call.argument("videoFps")
@@ -473,7 +474,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun requestPermissionAndCompress33(
         path: String, result: Result, quality: VideoQuality,
-        isMinBitrateCheckEnabled: Boolean, videoBitrateInMbps: Int?,
+        isMinBitrateCheckEnabled: Boolean, videoBitrateInMbps: Number?,
         targetSizeBytes: Long?, twoPass: Boolean, videoFps: Int?,
         audioBitrate: Int?, audioSampleRate: Int?,
         disableAudio: Boolean, resizer: VideoResizer?,
@@ -504,7 +505,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
 
     private fun requestPermissionAndCompressLegacy(
         path: String, result: Result, quality: VideoQuality,
-        isMinBitrateCheckEnabled: Boolean, videoBitrateInMbps: Int?,
+        isMinBitrateCheckEnabled: Boolean, videoBitrateInMbps: Number?,
         targetSizeBytes: Long?, twoPass: Boolean, videoFps: Int?,
         audioBitrate: Int?, audioSampleRate: Int?,
         disableAudio: Boolean, resizer: VideoResizer?,
@@ -783,7 +784,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
         val keepOriginalResolution: Boolean = call.argument("keepOriginalResolution") ?: false
         val videoWidth: Int? = call.argument("videoWidth")
         val videoHeight: Int? = call.argument("videoHeight")
-        val videoBitrateInMbps: Int? = call.argument("videoBitrateInMbps")
+        val videoBitrateInMbps: Number? = call.argument("videoBitrateInMbps")
         val disableAudio: Boolean = call.argument("disableAudio") ?: false
         val quality: VideoQuality = when (call.argument<String>("videoQuality")) {
             "very_low"  -> VideoQuality.VERY_LOW
@@ -844,7 +845,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
 
                 // Target video bitrate — the same value compression would request.
                 val targetBitrate =
-                    if (videoBitrateInMbps != null) videoBitrateInMbps * 1_000_000
+                    if (videoBitrateInMbps != null) (videoBitrateInMbps.toDouble() * 1_000_000).roundToInt()
                     else CompressorUtils.getBitrate(sourceBitrate, quality)
 
                 val audioBitrate = if (disableAudio || !hasAudio) 0 else 128_000

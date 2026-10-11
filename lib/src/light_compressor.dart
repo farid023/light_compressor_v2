@@ -308,7 +308,7 @@ class LightCompressor {
     bool keepOriginalResolution = false,
     int? videoWidth,
     int? videoHeight,
-    int? videoBitrateInMbps,
+    num? videoBitrateInMbps,
     int? targetSizeMb,
     int? videoFps,
     bool twoPass = false,
@@ -596,7 +596,7 @@ class LightCompressor {
     bool keepOriginalResolution = false,
     int? videoWidth,
     int? videoHeight,
-    int? videoBitrateInMbps,
+    num? videoBitrateInMbps,
     bool disableAudio = false,
   }) async {
     try {

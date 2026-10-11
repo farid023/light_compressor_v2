@@ -45,13 +45,13 @@ void main() {
       final video = Video(
         videoName: 'test.mp4',
         keepOriginalResolution: true,
-        videoBitrateInMbps: 5,
+        videoBitrateInMbps: 5.5,
         videoHeight: 720,
         videoWidth: 1280,
       );
       expect(video.videoName, 'test.mp4');
       expect(video.keepOriginalResolution, true);
-      expect(video.videoBitrateInMbps, 5);
+      expect(video.videoBitrateInMbps, 5.5);
       expect(video.videoHeight, 720);
       expect(video.videoWidth, 1280);
     });

@@ -95,7 +95,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
         }
 
         // Optional arguments
-        let videoBitrateInMbps = args["videoBitrateInMbps"] as? Int
+        let videoBitrateInMbps = (args["videoBitrateInMbps"] as? NSNumber)?.doubleValue
         let videoHeight        = args["videoHeight"]        as? Int
         let videoWidth         = args["videoWidth"]         as? Int
         let targetSizeBytes    = args["targetSizeBytes"]    as? Int
@@ -244,7 +244,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
             return
         }
 
-        let videoBitrateInMbps = args["videoBitrateInMbps"] as? Int
+        let videoBitrateInMbps = (args["videoBitrateInMbps"] as? NSNumber)?.doubleValue
         let targetSizeBytes    = args["targetSizeBytes"]    as? Int
         let videoFps           = args["videoFps"]           as? Int
         let audioBitrate       = args["audioBitrate"]       as? Int
@@ -464,7 +464,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
         let quality = getVideoQuality(quality: videoQuality)
         let keepOriginalResolution = (args["keepOriginalResolution"] as? Bool) ?? false
         let disableAudio = (args["disableAudio"] as? Bool) ?? false
-        let videoBitrateInMbps = args["videoBitrateInMbps"] as? Int
+        let videoBitrateInMbps = (args["videoBitrateInMbps"] as? NSNumber)?.doubleValue
         let videoWidth = args["videoWidth"] as? Int
         let videoHeight = args["videoHeight"] as? Int
         let videoSize: CGSize? = videoWidth != nil && videoHeight != nil

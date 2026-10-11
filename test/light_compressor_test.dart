@@ -76,7 +76,7 @@ void main() {
           video: Video(
             videoName: 'output.mp4',
             keepOriginalResolution: true,
-            videoBitrateInMbps: 2,
+            videoBitrateInMbps: 2.5,
             videoHeight: 720,
             videoWidth: 1280,
           ),
@@ -95,7 +95,7 @@ void main() {
         expect(arguments['disableAudio'], true);
         expect(arguments['keepOriginalResolution'], true);
         expect(arguments['isMinBitrateCheckEnabled'], false);
-        expect(arguments['videoBitrateInMbps'], 2);
+        expect(arguments['videoBitrateInMbps'], 2.5);
         expect(arguments['videoHeight'], 720);
         expect(arguments['videoWidth'], 1280);
         expect(arguments['videoName'], 'output.mp4');
@@ -948,7 +948,7 @@ void main() {
           keepOriginalResolution: true,
           videoWidth: 1280,
           videoHeight: 720,
-          videoBitrateInMbps: 2,
+          videoBitrateInMbps: 2.5,
           disableAudio: true,
         );
 
@@ -960,7 +960,7 @@ void main() {
         expect(args['keepOriginalResolution'], true);
         expect(args['videoWidth'], 1280);
         expect(args['videoHeight'], 720);
-        expect(args['videoBitrateInMbps'], 2);
+        expect(args['videoBitrateInMbps'], 2.5);
         expect(args['disableAudio'], true);
 
         expect(estimate.originalSizeBytes, 1000);
@@ -1133,6 +1133,24 @@ void main() {
 
       final args = log.last.arguments as Map<dynamic, dynamic>;
       expect(args['targetSizeBytes'], 25 * 1000 * 1000);
+    });
+
+    test('compressVideos forwards fractional video bitrate', () async {
+      batchResponse = <Map<String, dynamic>>[
+        {'onSuccess': '/out0.mp4'},
+      ];
+
+      await compressor.compressVideos(
+        paths: ['/a.mp4'],
+        videoNames: ['out0.mp4'],
+        videoQuality: VideoQuality.medium,
+        android: AndroidConfig(),
+        ios: IOSConfig(),
+        videoBitrateInMbps: 1.5,
+      );
+
+      final args = log.last.arguments as Map<dynamic, dynamic>;
+      expect(args['videoBitrateInMbps'], 1.5);
     });
 
     test('compressVideos asserts targetSizeMb excludes videoBitrateInMbps', () {

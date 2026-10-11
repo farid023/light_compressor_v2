@@ -1,5 +1,11 @@
 # Changelog
 
+# 1.9.2
+
+### Changed
+
+- **Fractional video bitrates:** `videoBitrateInMbps` now accepts values such as `2.5` in `Video`, `compressVideos`, and `getCompressionEstimate` on Android, iOS, and macOS. Existing integer values still work.
+
 # 1.9.1
 
 ### Fixed

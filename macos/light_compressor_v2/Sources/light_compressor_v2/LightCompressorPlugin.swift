@@ -27,7 +27,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                let path : String = myArgs["path"] as? String,
                let videoName : String = myArgs["videoName"] as? String,
                let isMinBitrateCheckEnabled : Bool = myArgs["isMinBitrateCheckEnabled"] as? Bool,
-               let videoBitrateInMbps : Int? = myArgs["videoBitrateInMbps"] as? Int?,
+               let videoBitrateInMbps : Double? = (myArgs["videoBitrateInMbps"] as? NSNumber)?.doubleValue,
                let disableAudio : Bool = myArgs["disableAudio"] as? Bool,
                let saveInGallery : Bool = myArgs["saveInGallery"] as? Bool,
                let keepOriginalResolution : Bool = myArgs["keepOriginalResolution"] as? Bool,
@@ -211,7 +211,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
             return
         }
 
-        let videoBitrateInMbps = args["videoBitrateInMbps"] as? Int
+        let videoBitrateInMbps = (args["videoBitrateInMbps"] as? NSNumber)?.doubleValue
         let targetSizeBytes    = args["targetSizeBytes"]    as? Int
         let videoFps           = args["videoFps"]           as? Int
         let audioBitrate       = args["audioBitrate"]       as? Int
@@ -417,7 +417,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
         let quality = getVideoQuality(quality: videoQuality)
         let keepOriginalResolution = (args["keepOriginalResolution"] as? Bool) ?? false
         let disableAudio = (args["disableAudio"] as? Bool) ?? false
-        let videoBitrateInMbps = args["videoBitrateInMbps"] as? Int
+        let videoBitrateInMbps = (args["videoBitrateInMbps"] as? NSNumber)?.doubleValue
         let videoWidth = args["videoWidth"] as? Int
         let videoHeight = args["videoHeight"] as? Int
         let videoSize: CGSize? = videoWidth != nil && videoHeight != nil
