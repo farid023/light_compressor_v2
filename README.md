@@ -465,7 +465,7 @@ try {
 | `ios` | `IOSConfig` | ✅ | — | iOS/macOS-specific storage configuration. |
 | `keepOriginalResolution` | `bool` | | `false` | Keep source dimensions instead of downscaling. |
 | `videoWidth` / `videoHeight` | `int?` | | `null` | Custom output size (set both together). |
-| `videoBitrateInMbps` | `int?` | | `null` | Custom bitrate in Mbps (overrides the preset). |
+| `videoBitrateInMbps` | `num?` | | `null` | Custom bitrate in Mbps, including fractions such as `2.5` (overrides the preset). |
 | `targetSizeMb` | `int?` | | `null` | Compress toward this maximum output size in MB. Mutually exclusive with `videoBitrateInMbps`. See [`Video.targetSizeMb`](#video). |
 | `videoFps` | `int?` | | `null` | Downsample the output frame rate (downsample-only). |
 | `disableAudio` | `bool` | | `false` | Strip the audio track from every output. |
@@ -488,7 +488,7 @@ Predicts the output **without transcoding**. The parameters mirror the ones on `
 | `videoFormat` | `VideoFormat` | | `h264` | Output codec. Does **not** change the estimated size — the compressor targets the same bitrate for H.264/H.265. |
 | `keepOriginalResolution` | `bool` | | `false` | Keep source dimensions instead of downscaling. |
 | `videoWidth` / `videoHeight` | `int?` | | `null` | Custom output size (set both together). |
-| `videoBitrateInMbps` | `int?` | | `null` | Custom bitrate in Mbps (overrides the preset). |
+| `videoBitrateInMbps` | `num?` | | `null` | Custom bitrate in Mbps, including fractions such as `2.5` (overrides the preset). |
 | `disableAudio` | `bool` | | `false` | Exclude the audio track from the estimate. |
 
 ### `Video`
@@ -497,7 +497,7 @@ Predicts the output **without transcoding**. The parameters mirror the ones on `
 |-----------|------|:--------:|---------|-------------|
 | `videoName` | `String` | ✅ | — | Output filename (`.mp4` appended automatically if missing). |
 | `keepOriginalResolution` | `bool?` | | `false` | Keep source dimensions instead of downscaling. |
-| `videoBitrateInMbps` | `int?` | | `null` | Custom bitrate in Mbps (overrides the quality preset). |
+| `videoBitrateInMbps` | `num?` | | `null` | Custom bitrate in Mbps, including fractions such as `2.5` (overrides the quality preset). |
 | `videoHeight` | `int?` | | `null` | Custom height in pixels. Must be set with `videoWidth`. |
 | `videoWidth` | `int?` | | `null` | Custom width in pixels. Must be set with `videoHeight`. |
 | `targetSizeMb` | `int?` | | `null` | Target maximum output size in MB. The compressor solves for the video bitrate (clamped to a 2 Mbps floor and the source bitrate). Mutually exclusive with `videoBitrateInMbps`; must be `> 0`. Whether it was achievable is reported by [`OnSuccess.targetSizeMet`](#result-types). Single-pass and approximate. |

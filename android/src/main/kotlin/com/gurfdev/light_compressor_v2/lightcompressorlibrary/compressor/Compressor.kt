@@ -30,6 +30,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 
 object Compressor {
 
@@ -273,7 +274,7 @@ object Compressor {
         var targetSizeMet = true
         val newBitrate: Int = when {
             configuration.videoBitrateInMbps != null ->
-                configuration.videoBitrateInMbps!! * 1000000
+                (configuration.videoBitrateInMbps!!.toDouble() * 1_000_000).roundToInt()
 
             configuration.targetSizeBytes != null -> {
                 val durationSec = outDurationUs / 1000000.0

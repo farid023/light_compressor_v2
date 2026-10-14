@@ -124,7 +124,7 @@ public struct LightCompressor {
         public struct Configuration {
             public let quality: VideoQuality
             public let isMinBitrateCheckEnabled: Bool
-            public let videoBitrateInMbps: Int?
+            public let videoBitrateInMbps: Double?
             public let targetSizeBytes: Int?
             public let videoFps: Int?
             public let audioBitrate: Int?
@@ -150,7 +150,7 @@ public struct LightCompressor {
             public init(
                 quality: VideoQuality = .medium,
                 isMinBitrateCheckEnabled: Bool = true,
-                videoBitrateInMbps: Int? = nil,
+                videoBitrateInMbps: Double? = nil,
                 disableAudio: Bool = false,
                 keepOriginalResolution: Bool = false,
                 videoSize: CGSize? = nil,
@@ -367,7 +367,7 @@ public struct LightCompressor {
         quality: VideoQuality,
         keepOriginalResolution: Bool,
         videoSize: CGSize?,
-        videoBitrateInMbps: Int?,
+        videoBitrateInMbps: Double?,
         disableAudio: Bool
     ) throws -> [String: Any] {
         guard FileManager.default.fileExists(atPath: path) else {
@@ -393,7 +393,7 @@ public struct LightCompressor {
         // Target video bitrate — the same value compressVideo would request.
         let targetBitrate = videoBitrateInMbps == nil
             ? getBitrate(bitrate: track.estimatedDataRate, quality: quality)
-            : videoBitrateInMbps! * 1_000_000
+            : Int((videoBitrateInMbps! * 1_000_000).rounded())
 
         let hasAudio = !asset.tracks(withMediaType: .audio).isEmpty
         let audioBitrate = (disableAudio || !hasAudio) ? 0 : 128_000
@@ -546,7 +546,7 @@ public struct LightCompressor {
             var targetSizeMet = true
             let newBitrate: Int
             if let mbps = configuration.videoBitrateInMbps {
-                newBitrate = mbps * 1_000_000
+                newBitrate = Int((mbps * 1_000_000).rounded())
             } else if let targetBytes = configuration.targetSizeBytes {
                 let solved = solveTargetBitrate(
                     targetSizeBytes: targetBytes,

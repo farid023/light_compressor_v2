@@ -14,7 +14,7 @@ import java.io.IOException
 data class Configuration(
     var quality: VideoQuality = VideoQuality.MEDIUM,
     var isMinBitrateCheckEnabled: Boolean = true,
-    var videoBitrateInMbps: Int? = null,
+    var videoBitrateInMbps: Number? = null,
     var disableAudio: Boolean = false,
     val resizer: VideoResizer? = VideoResizer.auto,
     var videoNames: List<String>,
@@ -60,7 +60,7 @@ data class Configuration(
     constructor(
         quality: VideoQuality = VideoQuality.MEDIUM,
         isMinBitrateCheckEnabled: Boolean = true,
-        videoBitrateInMbps: Int? = null,
+        videoBitrateInMbps: Number? = null,
         disableAudio: Boolean = false,
         keepOriginalResolution: Boolean,
         videoNames: List<String>) : this(quality, isMinBitrateCheckEnabled, videoBitrateInMbps, disableAudio, getVideoResizer(keepOriginalResolution, null, null), videoNames)
@@ -69,7 +69,7 @@ data class Configuration(
     constructor(
         quality: VideoQuality = VideoQuality.MEDIUM,
         isMinBitrateCheckEnabled: Boolean = true,
-        videoBitrateInMbps: Int? = null,
+        videoBitrateInMbps: Number? = null,
         disableAudio: Boolean = false,
         keepOriginalResolution: Boolean = false,
         videoHeight: Double? = null,

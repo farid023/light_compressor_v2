@@ -39,7 +39,7 @@ class Video {
   /// A custom target bitrate for the output video in Mbps (Megabits per second).
   ///
   /// If provided, this overrides the default bitrate calculated by the selected VideoQuality.
-  final int? videoBitrateInMbps;
+  final num? videoBitrateInMbps;
 
   /// A custom height for the output video in pixels.
   ///
