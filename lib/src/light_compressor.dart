@@ -333,6 +333,11 @@ class LightCompressor {
       targetSizeMb == null || targetSizeMb > 0,
       'targetSizeMb must be greater than 0',
     );
+    assert(
+      videoBitrateInMbps == null ||
+          (videoBitrateInMbps > 0 && videoBitrateInMbps.isFinite),
+      'videoBitrateInMbps must be a finite value greater than 0',
+    );
     assert(videoFps == null || videoFps > 0, 'videoFps must be greater than 0');
     assert(
       maxConcurrent == null || maxConcurrent >= 1,
@@ -599,6 +604,11 @@ class LightCompressor {
     num? videoBitrateInMbps,
     bool disableAudio = false,
   }) async {
+    assert(
+      videoBitrateInMbps == null ||
+          (videoBitrateInMbps > 0 && videoBitrateInMbps.isFinite),
+      'videoBitrateInMbps must be a finite value greater than 0',
+    );
     try {
       final Map<dynamic, dynamic>? result =
           await _channel.invokeMapMethod<dynamic, dynamic>(

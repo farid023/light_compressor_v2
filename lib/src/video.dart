@@ -21,6 +21,11 @@ class Video {
           'targetSizeMb must be greater than 0',
         ),
         assert(
+          videoBitrateInMbps == null ||
+              (videoBitrateInMbps > 0 && videoBitrateInMbps.isFinite),
+          'videoBitrateInMbps must be a finite value greater than 0',
+        ),
+        assert(
           videoFps == null || videoFps > 0,
           'videoFps must be greater than 0',
         );
@@ -37,6 +42,8 @@ class Video {
   final bool? keepOriginalResolution;
 
   /// A custom target bitrate for the output video in Mbps (Megabits per second).
+  ///
+  /// Fractions are allowed, e.g. `1.5`. Must be finite and greater than 0.
   ///
   /// If provided, this overrides the default bitrate calculated by the selected VideoQuality.
   final num? videoBitrateInMbps;

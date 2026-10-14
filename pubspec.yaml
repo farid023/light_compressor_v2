@@ -1,6 +1,6 @@
 name: light_compressor_v2
 description: Native light video compression for Flutter (No FFmpeg) — single or batch, H.264/H.265, target size, trim, rotate and colour, with live progress and cancellation.
-version: 1.9.1
+version: 1.10.0
 repository: https://github.com/Farid023/light_compressor_v2
 issue_tracker: https://github.com/Farid023/light_compressor_v2/issues
 
