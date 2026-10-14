@@ -27,14 +27,18 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                let path : String = myArgs["path"] as? String,
                let videoName : String = myArgs["videoName"] as? String,
                let isMinBitrateCheckEnabled : Bool = myArgs["isMinBitrateCheckEnabled"] as? Bool,
-               let videoBitrateInMbps : Double? = (myArgs["videoBitrateInMbps"] as? NSNumber)?.doubleValue,
                let disableAudio : Bool = myArgs["disableAudio"] as? Bool,
                let saveInGallery : Bool = myArgs["saveInGallery"] as? Bool,
                let keepOriginalResolution : Bool = myArgs["keepOriginalResolution"] as? Bool,
-               let videoHeight : Int? = myArgs["videoHeight"] as? Int?,
-               let videoWidth : Int? = myArgs["videoWidth"] as? Int?,
                let videoQuality : String = myArgs["videoQuality"] as? String {
-                
+                // Optional arguments are read outside the binding chain. A Dart
+                // null arrives as NSNull, and the Swift runtime in macOS 27 no
+                // longer casts NSNull to `.some(nil)` for `as? Int?` — inside
+                // the `if let` that failed every call with INVALID_ARGS.
+                let videoBitrateInMbps = (myArgs["videoBitrateInMbps"] as? NSNumber)?.doubleValue
+                let videoHeight = myArgs["videoHeight"] as? Int
+                let videoWidth = myArgs["videoWidth"] as? Int
+
                 var desPath: URL
                 
                 desPath = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(videoName).mp4")

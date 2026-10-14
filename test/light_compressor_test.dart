@@ -1153,6 +1153,39 @@ void main() {
       expect(args['videoBitrateInMbps'], 1.5);
     });
 
+    test('compressVideos rejects a non-positive or non-finite bitrate',
+        () async {
+      for (final num bad in <num>[0, double.nan, double.infinity]) {
+        await expectLater(
+          compressor.compressVideos(
+            paths: ['/a.mp4'],
+            videoNames: ['out0.mp4'],
+            videoQuality: VideoQuality.medium,
+            android: AndroidConfig(),
+            ios: IOSConfig(),
+            videoBitrateInMbps: bad,
+          ),
+          throwsA(isA<AssertionError>()),
+          reason: 'videoBitrateInMbps: $bad must be rejected',
+        );
+      }
+    });
+
+    test('getCompressionEstimate rejects a non-positive or non-finite bitrate',
+        () async {
+      for (final num bad in <num>[0, double.nan, double.infinity]) {
+        await expectLater(
+          compressor.getCompressionEstimate(
+            '/a.mp4',
+            videoQuality: VideoQuality.medium,
+            videoBitrateInMbps: bad,
+          ),
+          throwsA(isA<AssertionError>()),
+          reason: 'videoBitrateInMbps: $bad must be rejected',
+        );
+      }
+    });
+
     test('compressVideos asserts targetSizeMb excludes videoBitrateInMbps', () {
       expect(
         () => compressor.compressVideos(

@@ -1,10 +1,15 @@
 # Changelog
 
-# 1.9.2
+# 1.10.0
 
-### Changed
+### New
 
-- **Fractional video bitrates:** `videoBitrateInMbps` now accepts values such as `2.5` in `Video`, `compressVideos`, and `getCompressionEstimate` on Android, iOS, and macOS. Existing integer values still work.
+- **Fractional video bitrates ([#22](https://github.com/Farid023/light_compressor_v2/issues/22)):** `videoBitrateInMbps` now accepts values such as `1.5` in `Video`, `compressVideos` and `getCompressionEstimate`, on Android, iOS and macOS. Integer values work as before. Thanks [@khlebobul](https://github.com/khlebobul) ([#24](https://github.com/Farid023/light_compressor_v2/pull/24)).
+
+### Fixed
+
+- **macOS 27: `compressVideo` always failed with `INVALID_ARGS`.** The Swift runtime in macOS 27 changed how a Dart `null` argument is cast, so every single-video compression on macOS was rejected before it started. Optional arguments are now read in a way that works on every macOS version. Batch compression, iOS and Android were not affected.
+- **`videoBitrateInMbps` is validated:** it must be finite and greater than `0`. A non-finite value could otherwise crash the app on iOS and macOS.
 
 # 1.9.1
 

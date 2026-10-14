@@ -367,6 +367,12 @@ to CocoaPods. Sources sit under `…/Sources/light_compressor_v2/`:
 > is written in an older inlined style, and adds a macOS-only `BackgroundExecution`
 > class. **Never blind-copy the plugin file across platforms.**
 
+**Optional channel arguments (Apple):** read them as `args[key] as? T`, never
+`as? T?` inside an `if let` chain. A Dart `null` arrives as `NSNull`, and since
+the OS 27 runtimes `NSNull as? Int?` no longer yields `.some(nil)` — the binding
+fails. That once made the macOS `startCompression` reject every call with
+`INVALID_ARGS` with no change in our code.
+
 **Background behaviour differs by design:** iOS has **no** background support
 (the OS suspends transcoding); macOS suppresses **App Nap** via
 `BackgroundExecution` (`ProcessInfo.beginActivity(.idleSystemSleepDisabled)`) when

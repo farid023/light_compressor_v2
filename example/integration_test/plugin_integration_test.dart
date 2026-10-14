@@ -31,6 +31,7 @@ void main() {
     VideoQuality quality = VideoQuality.medium,
     int? width,
     int? height,
+    num? bitrateMbps,
     bool disableAudio = false,
     String name = 'lc_it_out',
   }) async {
@@ -39,7 +40,12 @@ void main() {
       videoQuality: quality,
       isMinBitrateCheckEnabled: false,
       disableAudio: disableAudio,
-      video: Video(videoName: name, videoWidth: width, videoHeight: height),
+      video: Video(
+        videoName: name,
+        videoWidth: width,
+        videoHeight: height,
+        videoBitrateInMbps: bitrateMbps,
+      ),
       android: AndroidConfig(isSharedStorage: false),
       ios: IOSConfig(saveInGallery: false),
     );
@@ -122,6 +128,35 @@ void main() {
       ]..sort();
       expect(dims[0], closeTo(360, 48));
       expect(dims[1], closeTo(640, 48));
+    });
+
+    testWidgets('honours a fractional videoBitrateInMbps', (
+      WidgetTester tester,
+    ) async {
+      if (source == null) return markTestSkipped(kNoClipSkipReason);
+      // The estimate is pure arithmetic on the native side: 1.5 must map to
+      // exactly 1.5 Mbps, not a truncated 1.
+      final CompressionEstimate estimate =
+          await compressor.getCompressionEstimate(
+        source!,
+        videoQuality: VideoQuality.medium,
+        videoBitrateInMbps: 1.5,
+      );
+      expect(estimate.targetBitrate, 1500000);
+
+      // The encoder is VBR, so compare outputs instead of asserting an exact
+      // bitrate: if 1.5 were truncated to 1, both runs would be ~equal.
+      final OnSuccess one =
+          await compressSample(bitrateMbps: 1, name: 'lc_it_br1');
+      final OnSuccess oneAndHalf =
+          await compressSample(bitrateMbps: 1.5, name: 'lc_it_br15');
+      expect(
+        oneAndHalf.compressedSize,
+        greaterThan(one.compressedSize * 1.1),
+        reason: '1.5 Mbps (${oneAndHalf.compressedSize} B) should be clearly '
+            'larger than 1 Mbps (${one.compressedSize} B)',
+      );
+      await expectReadableVideo(compressor, oneAndHalf.destinationPath);
     });
 
     testWidgets('disableAudio still produces a valid video', (

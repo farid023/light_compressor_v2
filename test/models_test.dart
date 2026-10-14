@@ -82,6 +82,27 @@ void main() {
       );
     });
 
+    test('asserts videoBitrateInMbps is positive and finite', () {
+      // A non-finite value would reach the native Int(Double) conversion,
+      // which traps on Apple and takes the host app down.
+      for (final num bad in <num>[
+        0,
+        -1,
+        double.nan,
+        double.infinity,
+      ]) {
+        expect(
+          () => Video(videoName: 't.mp4', videoBitrateInMbps: bad),
+          throwsA(isA<AssertionError>()),
+          reason: 'videoBitrateInMbps: $bad must be rejected',
+        );
+      }
+      expect(
+        Video(videoName: 't.mp4', videoBitrateInMbps: 0.5).videoBitrateInMbps,
+        0.5,
+      );
+    });
+
     test('videoFps defaults to null and can be set', () {
       expect(Video(videoName: 'test.mp4').videoFps, isNull);
       expect(Video(videoName: 'test.mp4', videoFps: 24).videoFps, 24);
