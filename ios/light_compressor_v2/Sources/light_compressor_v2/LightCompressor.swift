@@ -258,6 +258,7 @@ public struct LightCompressor {
             "bitrate": Int(track.estimatedDataRate),
             "rotation": rotationDegrees(from: track.preferredTransform),
             "frameRate": Double(track.nominalFrameRate),
+            "isHdr": isHDR(track),
         ]
 
         let durationSeconds = CMTimeGetSeconds(asset.duration)
@@ -756,6 +757,7 @@ public struct LightCompressor {
         progressHandler: ((Int, ProgressInfo) -> Void)?,
         onPassComplete: @escaping (PassOutcome) -> Void
     ) {
+        let sourceIsHDR = Self.isHDR(videoTrack)
         var frameCount = 0
         let progress = Progress(totalUnitCount: Int64(totalFrames))
         var nextEmitSeconds = 0.0
@@ -773,7 +775,8 @@ public struct LightCompressor {
                 bitrate: bitrate,
                 width: size.width,
                 height: size.height,
-                format: resolvedFormat))
+                format: resolvedFormat,
+                toneMapToSDR: sourceIsHDR))
         videoWriterInput.expectsMediaDataInRealTime = true
         // Rotate (9b): compose the requested quarter-turn onto the source
         // orientation (cheap container-metadata rotation).
@@ -792,11 +795,20 @@ public struct LightCompressor {
         }
         videoWriter.add(videoWriterInput)
 
-        // Video reader
-        let videoReaderSettings: [String: AnyObject] = [
+        // Video reader. The output is 8-bit, so an HDR source (HLG / PQ, e.g.
+        // an iPhone's Dolby Vision recording) is read straight into BT.709:
+        // AVFoundation tone-maps it to SDR on the way. Read as-is, the HLG
+        // signal would be quantised to 8 bits and the writer would inherit the
+        // HLG tags — a non-standard file that shows banding or washed-out
+        // colour. SDR sources keep the untouched path.
+        var videoReaderSettings: [String: AnyObject] = [
             kCVPixelBufferPixelFormatTypeKey as String:
                 Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) as AnyObject
         ]
+        if sourceIsHDR {
+            videoReaderSettings[AVVideoColorPropertiesKey] =
+                Self.sdrColorProperties as AnyObject
+        }
         // Color adjust: when any color knob is set, read through a
         // video composition that applies CIColorControls; otherwise keep the
         // cheap track output. Identity = brightness 0, contrast 1, saturation 1.
@@ -821,7 +833,17 @@ public struct LightCompressor {
                 })
             let compOutput = AVAssetReaderVideoCompositionOutput(
                 videoTracks: [videoTrack], videoSettings: videoReaderSettings)
-            compOutput.videoComposition = composition
+            if sourceIsHDR,
+               let sdrComposition = composition.mutableCopy() as? AVMutableVideoComposition {
+                // Without explicit colour properties a composition of HDR
+                // content renders HLG; pin it to BT.709 like the plain path.
+                sdrComposition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
+                sdrComposition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
+                sdrComposition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+                compOutput.videoComposition = sdrComposition
+            } else {
+                compOutput.videoComposition = composition
+            }
             videoReaderOutput = compOutput
         } else {
             videoReaderOutput = AVAssetReaderTrackOutput(
@@ -1139,6 +1161,25 @@ public struct LightCompressor {
         return (newWidth, newHeight)
     }
 
+    /// BT.709 SDR colour properties, used to tone-map an HDR source.
+    private static let sdrColorProperties: [String: String] = [
+        AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+        AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+        AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+    ]
+
+    /// Whether the video track is HDR: an HLG or PQ (ST 2084) transfer function.
+    /// iPhone HDR / Dolby Vision 8.4 recordings are HLG.
+    static func isHDR(_ track: AVAssetTrack) -> Bool {
+        guard let desc = (track.formatDescriptions as? [CMFormatDescription])?.first,
+              let transfer = CMFormatDescriptionGetExtension(
+                desc, extensionKey: kCVImageBufferTransferFunctionKey) as? String else {
+            return false
+        }
+        return transfer == (kCVImageBufferTransferFunction_ITU_R_2100_HLG as String)
+            || transfer == (kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String)
+    }
+
     /// Whether the track's audio is AAC (any profile) — the only audio the .mp4
     /// output takes as-is. A track without a format description counts as not
     /// AAC, so it is re-encoded rather than copied blind.
@@ -1163,7 +1204,8 @@ public struct LightCompressor {
         AVAssetExportSession.allExportPresets().contains(AVAssetExportPresetHEVCHighestQuality)
     }
 
-    private func getVideoWriterSettings(bitrate: Int, width: Int, height: Int, format: VideoFormat) -> [String: AnyObject] {
+    private func getVideoWriterSettings(bitrate: Int, width: Int, height: Int, format: VideoFormat,
+                                        toneMapToSDR: Bool) -> [String: AnyObject] {
         // NOTE: the frame rate is reduced by actually dropping source frames in
         // the writer loop (see frameDropEnabled). We deliberately do NOT set
         // AVVideoExpectedSourceFrameRateKey / AVVideoAverageNonDroppableFrameRateKey
@@ -1173,11 +1215,16 @@ public struct LightCompressor {
             AVVideoAverageBitRateKey: bitrate as AnyObject
         ]
         let codec: AVVideoCodecType = (format == .h265) ? .hevc : .h264
-        return [
+        var settings: [String: AnyObject] = [
             AVVideoCodecKey:                  codec as AnyObject,
             AVVideoCompressionPropertiesKey:  compressionSettings as AnyObject,
             AVVideoWidthKey:                  width  as AnyObject,
             AVVideoHeightKey:                 height as AnyObject,
         ]
+        // Tag a tone-mapped HDR source as the SDR it now is.
+        if toneMapToSDR {
+            settings[AVVideoColorPropertiesKey] = Self.sdrColorProperties as AnyObject
+        }
+        return settings
     }
 }

@@ -31,6 +31,15 @@ const String kNoPcmClipSkipReason =
     'Add the PCM-audio clip at example/$kPcmAudioSampleAssetKey to run this '
     'test.';
 
+/// Pubspec-relative key of a short iPhone-style HDR clip: 10-bit HEVC, HLG /
+/// BT.2020, with a Dolby Vision 8.4 configuration. Regenerate from an iPhone
+/// HDR recording with `tools/make_hdr_hlg.swift`.
+const String kHdrSampleAssetKey = 'integration_test/assets/sample_hdr.mp4';
+
+/// Reason shown when the HDR clip is missing and a test skips.
+const String kNoHdrClipSkipReason =
+    'Add the HDR clip at example/$kHdrSampleAssetKey to run this test.';
+
 /// Anything smaller than this is treated as the committed placeholder.
 const int _minRealClipBytes = 5000;
 
@@ -50,6 +59,10 @@ Future<String?> prepareAudioSampleSource() =>
 /// Same as [prepareSampleSource] for the clip whose audio is PCM.
 Future<String?> preparePcmAudioSource() =>
     _prepareAsset(kPcmAudioSampleAssetKey, 'source_pcm.mov');
+
+/// Same as [prepareSampleSource] for the HDR clip.
+Future<String?> prepareHdrSampleSource() =>
+    _prepareAsset(kHdrSampleAssetKey, 'source_hdr.mp4');
 
 Future<String?> _prepareAsset(String assetKey, String fileName) async {
   final ByteData data;

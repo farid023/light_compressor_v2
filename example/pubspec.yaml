@@ -76,6 +76,7 @@ flutter:
     - integration_test/assets/sample.mp4
     - integration_test/assets/sample_audio.mp4
     - integration_test/assets/sample_pcm.mov
+    - integration_test/assets/sample_hdr.mp4
 
   # To add assets to your application, add an assets section, like this:
   # assets:
