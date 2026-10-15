@@ -72,7 +72,8 @@ plugin:
 - `startCompression` returns a **JSON string** (Android `gson.toJson`, Apple
   `Encodable.toJson`) that Dart `jsonDecode`s.
 - `startBatchCompression` returns a **`List` of maps directly** (no JSON string).
-- `getMediaInfo` returns a map; `getVideoThumbnail` returns a path string. Both
+- `getMediaInfo` returns a map (incl. a bool `isHdr`: HLG/PQ transfer or Dolby
+  Vision); `getVideoThumbnail` returns a path string. Both
   report errors as a `PlatformException` (`result.error(code, …)`) with codes
   `VIDEO_NOT_FOUND` / `PERMISSION_DENIED` / `UNSUPPORTED_VIDEO` /
   `MEDIA_INFO_FAILED` / `THUMBNAIL_FAILED`.
@@ -132,6 +133,19 @@ Dart `_failureTypeFromWire` / `_exceptionFor`. **Change one, change all four.**
   `CIColorControls` video composition — so cross-platform pixel parity is not
   guaranteed; the no-colour path stays a cheap no-op (identity uniforms / the
   plain track output).
+- **HDR in, SDR out.** Output is always 8-bit, so an HDR source (HLG/PQ, incl.
+  an iPhone's Dolby Vision 8.4) must come out tone-mapped and tagged BT.709 —
+  never 8-bit with the source's HLG/PQ tags. Apple reads such a source straight
+  into BT.709 (reader output + writer + colour composition); Android asks the
+  decoder to tone-map (`KEY_COLOR_TRANSFER_REQUEST`, API 33+, honoured where
+  supported) and always writes SDR tags. SDR sources keep the untouched path.
+  A Dolby Vision track decodes through its HEVC/AVC base layer when the device
+  has no Dolby Vision decoder (`CompressorUtils.remapDolbyVisionForDecoding`) —
+  otherwise Android fails outright on every iPhone HDR clip.
+- **Audio in the .mp4 is AAC.** With no `AudioConfig`, AAC source audio is copied
+  through; Apple re-encodes any other format (e.g. `.mov` PCM) instead of
+  copying it into the .mp4. Android's `MediaExtractor` cannot read QuickTime
+  `lpcm` at all (`application/octet-stream`), so that track is dropped there.
 
 ---
 
@@ -278,6 +292,10 @@ a vendored fork of the LightCompressor library:
   that pipe decoder output into encoder input.
   [`video/Result.kt`](android/src/main/kotlin/com/gurfdev/light_compressor_v2/lightcompressorlibrary/video/Result.kt)
   is the internal transcode result.
+  [`video/FrameGrabber.kt`](android/src/main/kotlin/com/gurfdev/light_compressor_v2/lightcompressorlibrary/video/FrameGrabber.kt)
+  is the thumbnail fallback when `MediaMetadataRetriever` cannot decode a frame
+  (Dolby Vision / 10-bit): the compressor's own decode → SurfaceTexture → GL
+  path, drawn into an RGBA `ImageReader`.
 - [`utils/`](android/src/main/kotlin/com/gurfdev/light_compressor_v2/lightcompressorlibrary/utils/)
   — `CompressorUtils.kt` (bitrate / codec-capability / track helpers: `getBitrate`,
   `findTrack`, `isHevcHardwareEncoderAvailable`, `setOutputFileParameters`, …),
@@ -407,7 +425,8 @@ The demo app is also the only place the native pipeline runs end-to-end.
     [`fps_test.dart`](example/integration_test/fps_test.dart),
     [`audio_test.dart`](example/integration_test/audio_test.dart), and
     [`two_pass_test.dart`](example/integration_test/two_pass_test.dart) — the
-    output-control options (target size, frame-rate downsample, AAC audio re-encode,
+    output-control options (target size, frame-rate downsample, AAC audio re-encode
+    — plus a PCM-audio `.mov` source, checked by the audio track's size —
     two-pass). The corrective second pass only runs when pass 1 overshoots, so a
     highly compressible clip stays single-pass (`passesUsed == 1`).
   - [`integration_test/edit_test.dart`](example/integration_test/edit_test.dart)
@@ -418,6 +437,10 @@ The demo app is also the only place the native pipeline runs end-to-end.
   - [`integration_test/input_variety_test.dart`](example/integration_test/input_variety_test.dart)
     — input-variety coverage: no-audio, rotated, and HEVC *input* clips (each
     derived from the sample via the plugin's own pipeline).
+  - [`integration_test/hdr_test.dart`](example/integration_test/hdr_test.dart)
+    — an iPhone-style HDR source (10-bit HEVC, HLG, Dolby Vision 8.4):
+    `MediaInfo.isHdr`, compression to SDR in both codecs (output `isHdr ==
+    false`), and a thumbnail.
   - [`integration_test/benchmark_test.dart`](example/integration_test/benchmark_test.dart)
     — **not a correctness test:** runs the matrix (quality presets × H.264/H.265)
     and prints a Markdown table of size-reduction + wall-clock time. Also benchmarks
@@ -429,7 +452,10 @@ The demo app is also the only place the native pipeline runs end-to-end.
     (loaded via `prepareSampleSource()` in `support.dart`). The tests **skip
     cleanly when it is absent or still the committed placeholder** (anything under
     ~5 KB is treated as the placeholder). The clip is excluded from the published
-    package — see `.pubignore`.
+    package — see `.pubignore`. `sample.mp4` is video-only; the other fixtures
+    carry what it lacks — `sample_audio.mp4` (AAC), `sample_pcm.mov` (PCM audio)
+    and `sample_hdr.mp4` (HDR). The last two are generated natively on macOS by
+    the AVFoundation scripts in `integration_test/tools/` (no ffmpeg).
 
 ---
 

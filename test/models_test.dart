@@ -326,6 +326,22 @@ void main() {
       expect(a == a.copyWith(width: 999), isFalse);
       expect(a.hashCode, a.copyWith(height: 200).hashCode);
     });
+
+    test('fromMap parses isHdr, and leaves it null when absent', () {
+      expect(MediaInfo.fromMap(<String, dynamic>{'isHdr': true}).isHdr, true);
+      expect(MediaInfo.fromMap(<String, dynamic>{'isHdr': false}).isHdr, false);
+      // An older native that does not send the key: unknown, not "SDR".
+      expect(MediaInfo.fromMap(<String, dynamic>{}).isHdr, isNull);
+    });
+
+    test('isHdr takes part in copyWith, equality and toString', () {
+      const sdr = MediaInfo(width: 100, isHdr: false);
+      final hdr = sdr.copyWith(isHdr: true);
+      expect(hdr.isHdr, isTrue);
+      expect(hdr == sdr, isFalse);
+      expect(hdr.hashCode == sdr.hashCode, isFalse);
+      expect(hdr.toString(), contains('isHdr: true'));
+    });
   });
 
   group('CompressionEstimate', () {

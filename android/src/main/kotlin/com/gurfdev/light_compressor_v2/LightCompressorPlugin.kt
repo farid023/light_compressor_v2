@@ -25,6 +25,7 @@ import com.gurfdev.light_compressor_v2.lightcompressorlibrary.VideoQuality
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.config.*
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.roundDimension
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.video.FrameGrabber
 import com.google.gson.Gson
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -675,6 +676,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
                     "rotation" to retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull(),
                     "frameRate" to frameRate,
                     "mimeType" to retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE),
+                    "isHdr" to readIsHdr(file.absolutePath),
                 )
                 postSuccess(result, info)
             } catch (e: Exception) {
@@ -703,10 +705,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
                     return@Thread
                 }
                 retriever.setDataSource(file.absolutePath)
-                val bitmap: Bitmap? = retriever.getFrameAtTime(
-                    positionInMs * 1000L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                )
+                val bitmap: Bitmap? = frameAt(retriever, file.absolutePath, positionInMs * 1000L)
                 if (bitmap == null) {
                     postError(result, "THUMBNAIL_FAILED", "Could not extract a frame at ${positionInMs}ms.")
                     return@Thread
@@ -749,10 +748,7 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
                     val positionInMs =
                         ((req["positionInMs"] as? Number)?.toInt() ?: 0).coerceAtLeast(0)
                     val quality = ((req["quality"] as? Number)?.toInt() ?: 50).coerceIn(0, 100)
-                    val bitmap: Bitmap? = retriever.getFrameAtTime(
-                        positionInMs * 1000L,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                    )
+                    val bitmap: Bitmap? = frameAt(retriever, file.absolutePath, positionInMs * 1000L)
                     if (bitmap == null) {
                         postError(result, "THUMBNAIL_FAILED", "Could not extract a frame at ${positionInMs}ms.")
                         return@Thread
@@ -875,6 +871,32 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
     // Reads the video track's duration (microseconds) and bitrate (bps) from
     // the container, used as a fallback when MediaMetadataRetriever does not
     // expose them. Returns nulls when unavailable.
+    /**
+     * The sync frame at [positionUs], via the retriever — or, when it cannot
+     * decode the track (a Dolby Vision recording on a device without a Dolby
+     * Vision decoder), decoded directly by [FrameGrabber].
+     */
+    private fun frameAt(retriever: MediaMetadataRetriever, path: String, positionUs: Long): Bitmap? =
+        try {
+            retriever.getFrameAtTime(positionUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        } catch (e: Exception) {
+            null
+        } ?: FrameGrabber.frameAt(path, positionUs)
+
+    /** Whether the video track is HDR (HLG / PQ, or Dolby Vision); null if unreadable. */
+    private fun readIsHdr(path: String): Boolean? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(path)
+            val index = CompressorUtils.findTrack(extractor, isVideo = true)
+            if (index < 0) null else CompressorUtils.isHdr(extractor.getTrackFormat(index))
+        } catch (e: Exception) {
+            null
+        } finally {
+            try { extractor.release() } catch (ignored: Exception) {}
+        }
+    }
+
     private fun readTrackDurationAndBitrate(path: String): Pair<Long?, Int?> {
         val extractor = MediaExtractor()
         return try {
