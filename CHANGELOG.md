@@ -1,5 +1,17 @@
 # Changelog
 
+# 1.11.0
+
+### New
+
+- **`MediaInfo.isHdr`:** tells whether a video is HDR (HLG or PQ, incl. Dolby Vision) before you compress it.
+
+### Fixed
+
+- **Android: iPhone HDR videos failed to compress.** iPhones record HDR as Dolby Vision 8.4, which Android reports as `video/dolby-vision`; on devices without a Dolby Vision decoder (most of them) compression failed outright. The video is now decoded through its HEVC base layer. Thumbnails of these videos work too.
+- **HDR sources produced a non-standard file.** The output kept the source's HLG/BT.2020 tags on 8-bit video, which many players show with banding or washed-out colour. It is now proper SDR (BT.709): tone-mapped on iOS/macOS, and on Android 13+ where the decoder supports it.
+- **iOS/macOS: audio that isn't AAC was copied into the .mp4 uncompressed.** For example, the PCM audio many cameras write into `.mov` ended up as ~1.4 Mbps of raw audio that many players cannot play. It is now re-encoded to AAC. (Android cannot read that QuickTime PCM at all, so there the track is left out.)
+
 # 1.10.0
 
 ### New
