@@ -70,10 +70,12 @@ flutter:
 
   # Sample clips used by the integration tests (replace a placeholder with a
   # real short .mp4 to enable them). sample.mp4 is video-only; sample_audio.mp4
-  # carries an AAC track, which is what exercises the native audio mux.
+  # carries an AAC track, which is what exercises the native audio mux;
+  # sample_pcm.mov carries PCM audio, which cannot be muxed into .mp4 as-is.
   assets:
     - integration_test/assets/sample.mp4
     - integration_test/assets/sample_audio.mp4
+    - integration_test/assets/sample_pcm.mov
 
   # To add assets to your application, add an assets section, like this:
   # assets:

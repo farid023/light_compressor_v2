@@ -843,11 +843,15 @@ public struct LightCompressor {
         let audioTrack = configuration.disableAudio
             ? nil
             : videoAsset.tracks(withMediaType: .audio).first
-        // Re-encode the audio to AAC when a bitrate/sample-rate was requested
-        // (8c); otherwise copy the source samples through untouched (nil).
+        // Re-encode the audio to AAC when a bitrate/sample-rate was requested,
+        // or when the source audio is not AAC: copying e.g. PCM through would
+        // write a non-standard, uncompressed track into the .mp4 that many
+        // players cannot play. Otherwise copy the AAC samples through untouched.
+        let sourceAudioIsAAC = audioTrack.map(Self.isAAC) ?? true
         let reEncodeAudio = !configuration.disableAudio
             && (configuration.audioBitrate != nil
-                || configuration.audioSampleRate != nil)
+                || configuration.audioSampleRate != nil
+                || !sourceAudioIsAAC)
         var audioWriterInput: AVAssetWriterInput?
         var audioReader: AVAssetReader?
         var audioReaderOutput: AVAssetReaderTrackOutput?
@@ -1133,6 +1137,23 @@ public struct LightCompressor {
         }
 
         return (newWidth, newHeight)
+    }
+
+    /// Whether the track's audio is AAC (any profile) — the only audio the .mp4
+    /// output takes as-is. A track without a format description counts as not
+    /// AAC, so it is re-encoded rather than copied blind.
+    private static func isAAC(_ track: AVAssetTrack) -> Bool {
+        guard let desc = (track.formatDescriptions as? [CMFormatDescription])?.first else {
+            return false
+        }
+        switch CMFormatDescriptionGetMediaSubType(desc) {
+        case kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2,
+             kAudioFormatMPEG4AAC_LD, kAudioFormatMPEG4AAC_ELD, kAudioFormatMPEG4AAC_ELD_SBR,
+             kAudioFormatMPEG4AAC_ELD_V2:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Whether this device supports hardware HEVC (H.265) **encoding**. The

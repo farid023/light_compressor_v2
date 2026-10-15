@@ -21,6 +21,16 @@ const String kNoAudioClipSkipReason =
     'Add a real clip WITH an audio track at example/$kAudioSampleAssetKey to '
     'run this test.';
 
+/// Pubspec-relative key of a short .mov whose audio is 16-bit PCM, as many
+/// cameras and screen recorders write it. PCM cannot be muxed into the .mp4
+/// output as-is. Regenerate with `tools/make_pcm_mov.swift`.
+const String kPcmAudioSampleAssetKey = 'integration_test/assets/sample_pcm.mov';
+
+/// Reason shown when the PCM-audio clip is missing and a test skips.
+const String kNoPcmClipSkipReason =
+    'Add the PCM-audio clip at example/$kPcmAudioSampleAssetKey to run this '
+    'test.';
+
 /// Anything smaller than this is treated as the committed placeholder.
 const int _minRealClipBytes = 5000;
 
@@ -36,6 +46,10 @@ Future<String?> prepareSampleSource() =>
 /// Same as [prepareSampleSource] for the clip that carries an audio track.
 Future<String?> prepareAudioSampleSource() =>
     _prepareAsset(kAudioSampleAssetKey, 'source_audio.mp4');
+
+/// Same as [prepareSampleSource] for the clip whose audio is PCM.
+Future<String?> preparePcmAudioSource() =>
+    _prepareAsset(kPcmAudioSampleAssetKey, 'source_pcm.mov');
 
 Future<String?> _prepareAsset(String assetKey, String fileName) async {
   final ByteData data;
