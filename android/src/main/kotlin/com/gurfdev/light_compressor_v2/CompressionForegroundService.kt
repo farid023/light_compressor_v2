@@ -29,21 +29,59 @@ import androidx.core.content.ContextCompat
  *
  * Started and stopped explicitly by [LightCompressorPlugin] around a single
  * compression call; progress and status are pushed in via [updateProgress].
+ *
+ * A stop requested before [startForeground] is deferred. Android crashes the
+ * app when [Context.stopService] wins that race.
  */
 class CompressionForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val title = intent?.getStringExtra(EXTRA_TITLE) ?: DEFAULT_TITLE
-        val text = intent?.getStringExtra(EXTRA_TEXT) ?: DEFAULT_TEXT
+    override fun onCreate() {
+        super.onCreate()
+        // Promote at the earliest lifecycle point. `promoted` stays false until
+        // onStartCommand so stop() cannot call stopService before that callback.
+        enterForeground(currentTitle(), currentText())
+    }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val title = intent?.getStringExtra(EXTRA_TITLE) ?: currentTitle()
+        val text = intent?.getStringExtra(EXTRA_TEXT) ?: currentText()
         activeTitle = title
         activeText = text
+        enterForeground(title, text)
+
+        val shouldStop = synchronized(gate) {
+            promoted = true
+            if (stopRequested) {
+                stopRequested = false
+                promoted = false
+                true
+            } else {
+                false
+            }
+        }
+        if (shouldStop) {
+            clearRunState()
+            // startId keeps a newer start, queued by the next compression,
+            // from being stopped by this stale request.
+            stopSelf(startId)
+        }
+
+        // The service is started/stopped explicitly by the plugin around one
+        // compression, so it must not be recreated if the process is killed.
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        synchronized(gate) { promoted = false }
+        super.onDestroy()
+    }
+
+    private fun enterForeground(title: String, text: String) {
         createChannelIfNeeded(this)
         // Indeterminate bar until the first progress update arrives.
         val notification = buildNotification(this, title, text, null)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -53,10 +91,6 @@ class CompressionForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-
-        // The service is started/stopped explicitly by the plugin around one
-        // compression, so it must not be recreated if the process is killed.
-        return START_NOT_STICKY
     }
 
     companion object {
@@ -76,8 +110,16 @@ class CompressionForegroundService : Service() {
         @Volatile private var lastPercent = -1
         @Volatile private var startWhen = 0L
 
+        // `promoted` becomes true only after startForeground(). Until then,
+        // stop() must not call stopService(): Android reports
+        // ForegroundServiceDidNotStartInTimeException for that ordering.
+        private val gate = Any()
+        private var promoted = false
+        private var stopRequested = false
+
         /** Starts the foreground service with the given notification content. */
         fun start(context: Context, title: String, text: String) {
+            synchronized(gate) { stopRequested = false }
             activeTitle = title
             activeText = text
             lastPercent = -1
@@ -120,14 +162,38 @@ class CompressionForegroundService : Service() {
             )
         }
 
-        /** Stops the foreground service if it is running. */
+        /**
+         * Stops the foreground service if it is running.
+         *
+         * When `onStartCommand` has not promoted the service yet, records the
+         * request instead of calling [Context.stopService]. Startup then calls
+         * `startForeground()` before `stopSelf()`.
+         */
         fun stop(context: Context) {
+            val stopRunningService = synchronized(gate) {
+                if (promoted) {
+                    true
+                } else {
+                    stopRequested = true
+                    false
+                }
+            }
+            clearRunState()
+            if (stopRunningService) {
+                context.stopService(Intent(context, CompressionForegroundService::class.java))
+            }
+        }
+
+        private fun clearRunState() {
             activeTitle = null
             activeText = null
             lastPercent = -1
             startWhen = 0L
-            context.stopService(Intent(context, CompressionForegroundService::class.java))
         }
+
+        private fun currentTitle(): String = activeTitle ?: DEFAULT_TITLE
+
+        private fun currentText(): String = activeText ?: DEFAULT_TEXT
 
         /**
          * Builds the ongoing notification. A null [percent] renders an
