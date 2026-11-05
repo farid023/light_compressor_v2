@@ -40,6 +40,12 @@ const String kHdrSampleAssetKey = 'integration_test/assets/sample_hdr.mp4';
 const String kNoHdrClipSkipReason =
     'Add the HDR clip at example/$kHdrSampleAssetKey to run this test.';
 
+/// Pubspec-relative key of a 4 s clip of one unchanging frame (the first frame
+/// of the sample), for the constant-quality measurements. Regenerate with
+/// `tools/make_static_clip.swift`.
+const String kStaticSampleAssetKey =
+    'integration_test/assets/sample_static.mp4';
+
 /// Anything smaller than this is treated as the committed placeholder.
 const int _minRealClipBytes = 5000;
 
@@ -63,6 +69,10 @@ Future<String?> preparePcmAudioSource() =>
 /// Same as [prepareSampleSource] for the HDR clip.
 Future<String?> prepareHdrSampleSource() =>
     _prepareAsset(kHdrSampleAssetKey, 'source_hdr.mp4');
+
+/// Same as [prepareSampleSource] for the static clip.
+Future<String?> prepareStaticSampleSource() =>
+    _prepareAsset(kStaticSampleAssetKey, 'source_static.mp4');
 
 Future<String?> _prepareAsset(String assetKey, String fileName) async {
   final ByteData data;

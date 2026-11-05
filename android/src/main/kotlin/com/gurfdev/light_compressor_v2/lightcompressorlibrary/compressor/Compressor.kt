@@ -19,6 +19,7 @@ import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUt
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.printException
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.remapDolbyVisionForDecoding
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.setOutputFileParameters
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.RateControlProbe
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.roundDimension
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.video.*
 import kotlinx.coroutines.Dispatchers
@@ -1277,6 +1278,8 @@ object Compressor {
     }
 
     private fun prepareEncoder(outputFormat: MediaFormat): MediaCodec {
+        // Measurement only: a forced rate-control setup skips the fallbacks.
+        RateControlProbe.override?.let { return RateControlProbe.configureExactly(outputFormat, it) }
         var encoder: MediaCodec? = null
         var lastException: Exception? = null
         // The encoder must match the codec chosen for the output format (AVC/HEVC).

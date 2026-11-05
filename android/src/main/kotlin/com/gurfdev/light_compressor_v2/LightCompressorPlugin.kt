@@ -24,6 +24,7 @@ import com.gurfdev.light_compressor_v2.lightcompressorlibrary.VideoFormat
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.VideoQuality
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.config.*
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.RateControlProbe
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.roundDimension
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.video.FrameGrabber
 import com.google.gson.Gson
@@ -103,6 +104,14 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
             "getVideoThumbnails" -> handleGetVideoThumbnails(call, result)
             "getCompressionEstimate" -> handleGetCompressionEstimate(call, result)
             "isCompressing" -> result.success(VideoCompressor.isCompressing())
+            // Measurement only (cq_measurement_test.dart).
+            "debugDescribeEncoders" -> result.success(RateControlProbe.describe())
+            "debugForceRateControl" -> {
+                RateControlProbe.override = RateControlProbe.parse(call.arguments as? Map<*, *>)
+                RateControlProbe.lastEncoderName = null
+                result.success(null)
+            }
+            "debugLastEncoder" -> result.success(RateControlProbe.lastEncoderName)
             else -> result.notImplemented()
         }
     }
