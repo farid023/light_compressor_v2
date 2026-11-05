@@ -172,6 +172,9 @@ class CompressionForegroundService : Service() {
         fun stop(context: Context) {
             val stopRunningService = synchronized(gate) {
                 if (promoted) {
+                    // The next start() gets a fresh service that must promote
+                    // itself again; onDestroy() of this one may run later.
+                    promoted = false
                     true
                 } else {
                     stopRequested = true

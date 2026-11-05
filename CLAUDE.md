@@ -311,7 +311,12 @@ a vendored fork of the LightCompressor library:
 [`CompressionCancelReceiver.kt`](android/src/main/kotlin/com/gurfdev/light_compressor_v2/CompressionCancelReceiver.kt),
 both declared in
 [`AndroidManifest.xml`](android/src/main/AndroidManifest.xml) along with the
-foreground-service / notification permissions.
+foreground-service / notification permissions. **Never `stopService` before
+`startForeground`:** Android kills the app
+(`ForegroundServiceDidNotStartInTimeException`) when a service started with
+`startForegroundService` is stopped before it promotes itself — which a
+compression that fails at once used to do. `stop()` only records such an early
+stop; the service promotes itself and then calls `stopSelf(startId)`.
 
 **Build** — Kotlin DSL ([`build.gradle.kts`](android/build.gradle.kts)), **minSdk 24**.
 Built through the example app, not standalone. The floor stays 24 **by toolchain**:
@@ -441,6 +446,10 @@ The demo app is also the only place the native pipeline runs end-to-end.
     — an iPhone-style HDR source (10-bit HEVC, HLG, Dolby Vision 8.4):
     `MediaInfo.isHdr`, compression to SDR in both codecs (output `isHdr ==
     false`), and a thumbnail.
+  - [`integration_test/background_test.dart`](example/integration_test/background_test.dart)
+    — `BackgroundConfig`: a background compression that fails at once (and
+    one right after a successful run) must not crash the app — on Android
+    an early foreground-service stop used to.
   - [`integration_test/benchmark_test.dart`](example/integration_test/benchmark_test.dart)
     — **not a correctness test:** runs the matrix (quality presets × H.264/H.265)
     and prints a Markdown table of size-reduction + wall-clock time. Also benchmarks
