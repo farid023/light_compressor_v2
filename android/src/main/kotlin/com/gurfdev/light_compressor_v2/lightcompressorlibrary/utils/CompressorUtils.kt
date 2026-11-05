@@ -92,16 +92,25 @@ object CompressorUtils {
 
 
 
-            getColorStandard(inputFormat)?.let {
-                setInteger(MediaFormat.KEY_COLOR_STANDARD, it)
-            }
+            if (isHdr(inputFormat)) {
+                // The output is 8-bit SDR (the decoder is asked to tone-map, see
+                // Compressor.prepareDecoder), so tag it as such. Copying the
+                // source's HLG/PQ tags would mark an 8-bit file as HDR.
+                setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT709)
+                setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
+                setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
+            } else {
+                getColorStandard(inputFormat)?.let {
+                    setInteger(MediaFormat.KEY_COLOR_STANDARD, it)
+                }
 
-            getColorTransfer(inputFormat)?.let {
-                setInteger(MediaFormat.KEY_COLOR_TRANSFER, it)
-            }
+                getColorTransfer(inputFormat)?.let {
+                    setInteger(MediaFormat.KEY_COLOR_TRANSFER, it)
+                }
 
-            getColorRange(inputFormat)?.let {
-                setInteger(MediaFormat.KEY_COLOR_RANGE, it)
+                getColorRange(inputFormat)?.let {
+                    setInteger(MediaFormat.KEY_COLOR_RANGE, it)
+                }
             }
 
 
@@ -122,6 +131,50 @@ object CompressorUtils {
             MediaFormat.KEY_I_FRAME_INTERVAL
         )
         else I_FRAME_INTERVAL
+    }
+
+    /**
+     * Whether [format] describes HDR video: an HLG or PQ (ST 2084) transfer, or
+     * a Dolby Vision track. iPhone HDR recordings are Dolby Vision 8.4 over HLG.
+     */
+    fun isHdr(format: MediaFormat): Boolean {
+        if (format.getString(MediaFormat.KEY_MIME) == MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION) {
+            return true
+        }
+        val transfer = getColorTransfer(format) ?: return false
+        return transfer == MediaFormat.COLOR_TRANSFER_HLG ||
+            transfer == MediaFormat.COLOR_TRANSFER_ST2084
+    }
+
+    /**
+     * Makes a Dolby Vision [format] decodable on a device without a Dolby Vision
+     * decoder, which is most of them. The extractor reports such a track as
+     * `video/dolby-vision`, so creating a decoder for it fails outright. Its
+     * backward-compatible profiles carry a plain base layer — HEVC for 4, 7 and
+     * 8 (iPhone recordings are 8.4), AVC for 9 — so the format is rewritten in
+     * place to decode as that codec; HEVC/AVC decoders skip the Dolby Vision
+     * metadata. Other profiles (e.g. 5) have no compatible base layer and are
+     * left as they are.
+     */
+    fun remapDolbyVisionForDecoding(format: MediaFormat) {
+        if (format.getString(MediaFormat.KEY_MIME) != MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION) return
+        if (MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format) != null) return
+        val profile =
+            if (format.containsKey(MediaFormat.KEY_PROFILE)) format.getInteger(MediaFormat.KEY_PROFILE) else -1
+        val (mime, baseProfile) = when (profile) {
+            MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavSe ->
+                MediaFormat.MIMETYPE_VIDEO_AVC to MediaCodecInfo.CodecProfileLevel.AVCProfileHigh
+            MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr,
+            MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtb,
+            MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt,
+            -1 ->
+                MediaFormat.MIMETYPE_VIDEO_HEVC to MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10
+            else -> return
+        }
+        format.setString(MediaFormat.KEY_MIME, mime)
+        format.setInteger(MediaFormat.KEY_PROFILE, baseProfile)
+        // The level is a Dolby Vision level, meaningless to the base codec.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) format.removeKey(MediaFormat.KEY_LEVEL)
     }
 
     private fun getColorStandard(format: MediaFormat): Int? {

@@ -11,11 +11,13 @@ import com.gurfdev.light_compressor_v2.lightcompressorlibrary.ProgressInfo
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.VideoFormat
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.config.Configuration
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.findTrack
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.isHdr
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.isHevcHardwareEncoderAvailable
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.getBitrate
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.prepareVideoHeight
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.prepareVideoWidth
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.printException
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.remapDolbyVisionForDecoding
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.setOutputFileParameters
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.roundDimension
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.video.*
@@ -1380,10 +1382,30 @@ object Compressor {
         // MediaCodec.createByCodecName("c2.android.avc.decoder")
         //} else {
 
+        // The encoder input is 8-bit, so ask the decoder to tone-map an HDR
+        // source to SDR (API 33+, honoured where the decoder supports it).
+        val toneMap = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            isHdr(inputFormat)
+        if (toneMap) {
+            inputFormat.setInteger(
+                MediaFormat.KEY_COLOR_TRANSFER_REQUEST,
+                MediaFormat.COLOR_TRANSFER_SDR_VIDEO,
+            )
+        }
+        remapDolbyVisionForDecoding(inputFormat)
+
         val decoder = MediaCodec.createDecoderByType(inputFormat.getString(MediaFormat.KEY_MIME)!!)
         //}
 
-        decoder.configure(inputFormat, outputSurface.getSurface(), null, 0)
+        try {
+            decoder.configure(inputFormat, outputSurface.getSurface(), null, 0)
+        } catch (e: Exception) {
+            if (!toneMap || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) throw e
+            // A decoder that rejects the tone-mapping request: decode as-is.
+            decoder.reset()
+            inputFormat.removeKey(MediaFormat.KEY_COLOR_TRANSFER_REQUEST)
+            decoder.configure(inputFormat, outputSurface.getSurface(), null, 0)
+        }
 
         return decoder
     }

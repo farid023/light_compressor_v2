@@ -27,7 +27,7 @@ optional background execution — MIT-licensed, with zero third-party dependenci
 
 ## Contents
 
-[Highlights](#highlights) · [Platform support](#platform-support) · [Getting started](#getting-started) · [How it works](#how-it-works) · [Platform setup](#platform-setup) · [Usage](#usage) · [Large files](#large-files) · [API reference](#api-reference)
+[Highlights](#highlights) · [Platform support](#platform-support) · [Getting started](#getting-started) · [How it works](#how-it-works) · [Platform setup](#platform-setup) · [Usage](#usage) · [Large files](#large-files) · [HDR and other sources](#hdr-and-other-sources) · [API reference](#api-reference)
 
 ## Highlights
 
@@ -58,7 +58,7 @@ Add the dependency:
 
 ```yaml
 dependencies:
-  light_compressor_v2: ^1.10.0
+  light_compressor_v2: ^1.11.0
 ```
 
 ```bash
@@ -435,6 +435,23 @@ try {
 - **iOS/macOS** stream through `AVAssetReader` / `AVAssetWriter`, so they don't buffer
   the whole track; the 4 GB note is Android-specific.
 
+## HDR and other sources
+
+- **HDR video comes out as SDR.** Phones record HDR by default — an iPhone writes
+  10-bit HEVC in HLG with a Dolby Vision 8.4 layer. The compressed output is 8-bit,
+  so it is converted to SDR (BT.709) rather than left as an 8-bit file tagged HDR,
+  which many players show with banding or washed-out colour. iOS/macOS always
+  tone-map. Android tone-maps on Android 13+ where the decoder supports it;
+  elsewhere the picture is kept as-is in the SDR file and can look slightly flat.
+  Check `MediaInfo.isHdr` to know beforehand.
+- **Dolby Vision on Android** decodes through its base layer (HEVC for profiles
+  4, 7 and 8, AVC for 9), so it works on devices without a Dolby Vision decoder.
+  Profile 5 has no compatible base layer and is not supported.
+- **Audio that isn't AAC** (e.g. the PCM audio many cameras put in `.mov`) is
+  re-encoded to AAC on iOS/macOS, since the `.mp4` output only carries AAC
+  reliably. Android's `MediaExtractor` cannot read QuickTime PCM (`lpcm`) at all,
+  so on Android such a track is left out of the output.
+
 ## API reference
 
 ### `compressVideo()` → `Future<Result>`
@@ -595,6 +612,7 @@ All fields are nullable — a container/device may not expose every value.
 | `rotation` | `int?` | Rotation in degrees (`0`, `90`, `180`, `270`). |
 | `frameRate` | `double?` | Frames per second. |
 | `mimeType` | `String?` | Container MIME type. |
+| `isHdr` | `bool?` | `true` for HDR video (HLG or PQ transfer, incl. Dolby Vision). Compressed output is always SDR — see [HDR and other sources](#hdr-and-other-sources). |
 
 ### `CompressionEstimate` (from `getCompressionEstimate`)
 

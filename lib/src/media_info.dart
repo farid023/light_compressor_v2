@@ -17,6 +17,7 @@ class MediaInfo {
     this.rotation,
     this.frameRate,
     this.mimeType,
+    this.isHdr,
   });
 
   /// Builds a [MediaInfo] from the raw map returned by the platform channel.
@@ -35,6 +36,7 @@ class MediaInfo {
       rotation: (map['rotation'] as num?)?.toInt(),
       frameRate: _positiveDouble(map['frameRate']),
       mimeType: map['mimeType'] as String?,
+      isHdr: map['isHdr'] as bool?,
     );
   }
 
@@ -72,6 +74,14 @@ class MediaInfo {
   /// The MIME type of the video (e.g. `video/mp4`), when available.
   final String? mimeType;
 
+  /// Whether the video is HDR: its transfer function is HLG or PQ (ST 2084),
+  /// as in the HDR / Dolby Vision recordings modern phones make by default.
+  ///
+  /// Compressed output is always SDR (8-bit, BT.709), so this tells an app
+  /// beforehand that the colours will be converted. `null` when the platform
+  /// did not report it.
+  final bool? isHdr;
+
   /// The width as displayed, accounting for [rotation].
   ///
   /// For videos rotated by 90° or 270°, the stored [width] and [height] are
@@ -92,6 +102,7 @@ class MediaInfo {
     int? rotation,
     double? frameRate,
     String? mimeType,
+    bool? isHdr,
   }) =>
       MediaInfo(
         width: width ?? this.width,
@@ -102,13 +113,14 @@ class MediaInfo {
         rotation: rotation ?? this.rotation,
         frameRate: frameRate ?? this.frameRate,
         mimeType: mimeType ?? this.mimeType,
+        isHdr: isHdr ?? this.isHdr,
       );
 
   @override
   String toString() =>
       'MediaInfo(width: $width, height: $height, duration: $duration, '
       'fileSize: $fileSize, bitrate: $bitrate, rotation: $rotation, '
-      'frameRate: $frameRate, mimeType: $mimeType)';
+      'frameRate: $frameRate, mimeType: $mimeType, isHdr: $isHdr)';
 
   @override
   bool operator ==(Object other) =>
@@ -121,7 +133,8 @@ class MediaInfo {
           other.bitrate == bitrate &&
           other.rotation == rotation &&
           other.frameRate == frameRate &&
-          other.mimeType == mimeType;
+          other.mimeType == mimeType &&
+          other.isHdr == isHdr;
 
   @override
   int get hashCode => Object.hash(
@@ -133,5 +146,6 @@ class MediaInfo {
         rotation,
         frameRate,
         mimeType,
+        isHdr,
       );
 }
