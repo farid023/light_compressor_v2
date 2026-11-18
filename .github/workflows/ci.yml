@@ -15,6 +15,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned to the version the repo is developed and device-tested on, so
+          # a new stable can't turn CI red on its own; moving to a newer Flutter
+          # is a deliberate change.
+          flutter-version: 3.47.9
 
       - name: Install dependencies
         run: flutter pub get
@@ -34,3 +38,32 @@ jobs:
           files: coverage/lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  android-unit-test:
+    name: Android unit test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # Pinned to the version the repo is developed and device-tested on, so
+          # a new stable can't turn CI red on its own; moving to a newer Flutter
+          # is a deliberate change.
+          flutter-version: 3.47.9
+
+      # Generates example/android/local.properties and the plugin wiring the
+      # plugin's Gradle module is built through.
+      - name: Generate the Android build files
+        working-directory: example
+        run: flutter build apk --config-only
+
+      - name: Kotlin unit tests
+        working-directory: example/android
+        run: ./gradlew :light_compressor_v2:testDebugUnitTest

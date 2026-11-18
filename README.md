@@ -58,7 +58,7 @@ Add the dependency:
 
 ```yaml
 dependencies:
-  light_compressor_v2: ^1.11.0
+  light_compressor_v2: ^1.11.1
 ```
 
 ```bash

@@ -1,5 +1,15 @@
 # Changelog
 
+# 1.11.1
+
+### Fixed
+
+- **Android: a batch could hang forever after `cancelCompression()`.** A video cancelled before its turn had even started reported nothing, so the batch never returned. Every video now reports exactly once, however early the cancel lands.
+- **A stuck codec no longer hangs the call.** If a decoder or encoder stops delivering for 30 seconds, the compression fails with a clear message instead of never completing, on Android, iOS and macOS.
+- **Output size no longer distorts the picture.** Android rounded every side to a multiple of 16, so a 1080p video kept at its resolution came out 1920×1088 (slightly stretched) and scaled presets drifted too (960×544 instead of 960×540). iOS/macOS presets cut 540 down to 528. Both now keep the source's aspect ratio and round only as far as the encoder needs.
+- **Android: the declared H.264/HEVC level now fits the video.** The encoder was asked for the highest level any encoder on the device advertised, so an encoder that honoured it labelled 1080p as level 5 or 6. Some players refuse such files: iOS, for example, can play but not save them. It is now the lowest level that fits the size, frame rate and bitrate, taken from the encoder that actually runs.
+- **Android: failures without a message are readable.** Codec errors that carried no text used to reach you as "An error has occurred!". They now name the error and its cause.
+
 # 1.11.0
 
 ### New

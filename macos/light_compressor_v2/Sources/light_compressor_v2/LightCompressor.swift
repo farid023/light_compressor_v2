@@ -211,7 +211,11 @@ public struct LightCompressor {
 
     private static let MIN_BITRATE = Float(2_000_000)
     private static let MIN_HEIGHT  = 640.0
-    private static let MIN_WIDTH   = 360.0
+
+    /// A pass that reads nothing for this long is treated as stuck (a decoder
+    /// or encoder that stopped delivering), so it fails instead of hanging.
+    private static let STALL_TIMEOUT: TimeInterval = 30
+    private static let STALL_CHECK_INTERVAL: DispatchTimeInterval = .seconds(5)
 
     /// A two-pass run triggers a corrective second pass only when the
     /// first pass overshoots the target by more than this fraction.
@@ -942,12 +946,15 @@ public struct LightCompressor {
         let terminalLock = NSLock()
         var didReply = false
         var didFinish = false
+        var stallTimer: DispatchSourceTimer?
         let replyOnce: (PassOutcome) -> Void = { outcome in
             terminalLock.lock()
             let isFirst = !didReply
             didReply = true
             terminalLock.unlock()
-            if isFirst { onPassComplete(outcome) }
+            guard isFirst else { return }
+            stallTimer?.cancel()
+            onPassComplete(outcome)
         }
         let finishWritingOnce: () -> Void = {
             terminalLock.lock()
@@ -968,8 +975,62 @@ public struct LightCompressor {
             }
         }
 
+        // A stuck decoder or encoder would leave this pass waiting forever: the
+        // writer stops asking for data, or a read never returns. Each buffer read
+        // marks progress; with none for STALL_TIMEOUT the pass fails. The final
+        // finishWriting is not watched — it can legitimately take a while.
+        var lastProgress = Date()
+        var stalled = false
+        let markProgress = {
+            terminalLock.lock()
+            lastProgress = Date()
+            terminalLock.unlock()
+        }
+        let isStalled: () -> Bool = {
+            terminalLock.lock()
+            defer { terminalLock.unlock() }
+            return stalled
+        }
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + Self.STALL_CHECK_INTERVAL, repeating: Self.STALL_CHECK_INTERVAL)
+        timer.setEventHandler {
+            terminalLock.lock()
+            let idle = Date().timeIntervalSince(lastProgress)
+            let fire = !didReply && !didFinish && idle > Self.STALL_TIMEOUT
+            if fire {
+                // Closed for good: the loops stop and finishWritingOnce no-ops.
+                stalled = true
+                didFinish = true
+            }
+            terminalLock.unlock()
+            guard fire else { return }
+            replyOnce(.failure(CompressionError(
+                title: "The video transcode made no progress for \(Int(idle)) s.")))
+            // A reader can't be cancelled from another thread while a read is
+            // in flight (it crashes), so the loops wind down on their own queues
+            // (abandonIfStalled). This closes the writer when they aren't
+            // running at all, serialised with the video loop.
+            processingQueue.async {
+                if videoWriter.status == .writing { videoWriter.cancelWriting() }
+            }
+        }
+        stallTimer = timer
+        timer.resume()
+
+        // Called by a loop on its own queue: after a stall it cancels that
+        // loop's reader and the writer, and tells the loop to return.
+        let abandonIfStalled: (AVAssetReader?) -> Bool = { reader in
+            guard isStalled() else { return false }
+            reader?.cancelReading()
+            if videoWriter.status == .writing { videoWriter.cancelWriting() }
+            return true
+        }
+
         videoWriterInput.requestMediaDataWhenReady(on: processingQueue) {
             while videoWriterInput.isReadyForMoreMediaData {
+
+                // A stalled pass has already replied.
+                if abandonIfStalled(videoReader) { return }
 
                 // Handle cancellation
                 if compressionOperation.cancel {
@@ -1002,6 +1063,7 @@ public struct LightCompressor {
                 }
 
                 let sampleBuffer = videoReaderOutput.copyNextSampleBuffer()
+                markProgress()
 
                 if let sampleBuffer, videoReader.status != .failed {
                     // Frame-rate downsampling (8b): append the frame only once
@@ -1018,6 +1080,8 @@ public struct LightCompressor {
                     // reader already reading, close the writer while its audio
                     // input is still unfinished, and never complete — a silent
                     // hang with no result delivered to the caller.
+                    // A stalled pass has already replied; nothing to finish.
+                    if abandonIfStalled(nil) { return }
                     videoWriterInput.markAsFinished()
 
                     if videoReader.status == .failed {
@@ -1044,6 +1108,7 @@ public struct LightCompressor {
                     let audioQueue = DispatchQueue(label: "processingQueue2", qos: .background)
                     audioWriterInput.requestMediaDataWhenReady(on: audioQueue) {
                         while audioWriterInput.isReadyForMoreMediaData {
+                            if abandonIfStalled(audioReader) { return }
                             if compressionOperation.cancel {
                                 audioReader.cancelReading()
                                 videoWriter.cancelWriting()
@@ -1052,6 +1117,8 @@ public struct LightCompressor {
                             }
 
                             let audioBuffer = audioReaderOutput.copyNextSampleBuffer()
+                            markProgress()
+                            if abandonIfStalled(audioReader) { return }
 
                             guard let audioBuffer, audioReader.status != .failed else {
                                 // Audio drained (or the reader stopped): close
@@ -1136,29 +1203,27 @@ public struct LightCompressor {
             return (Int(width), Int(height))
         }
 
-        let newWidth: Int
-        let newHeight: Int
-
+        // One scale for both sides keeps the picture undistorted; each side is
+        // then rounded to an even number, which the encoders take. (Flooring
+        // each side to a multiple of 16 used to turn 540 into 528.)
+        let scale: CGFloat
         if width >= 1920 || height >= 1920 {
-            newWidth  = Int(width  * 0.5 / 16) * 16
-            newHeight = Int(height * 0.5 / 16) * 16
+            scale = 0.5
         } else if width >= 1280 || height >= 1280 {
-            newWidth  = Int(width  * 0.75 / 16) * 16
-            newHeight = Int(height * 0.75 / 16) * 16
+            scale = 0.75
         } else if width >= 960 || height >= 960 {
-            if width > height {
-                newWidth  = Int(Self.MIN_HEIGHT * 0.95 / 16) * 16
-                newHeight = Int(Self.MIN_WIDTH  * 0.95 / 16) * 16
-            } else {
-                newWidth  = Int(Self.MIN_WIDTH  * 0.95 / 16) * 16
-                newHeight = Int(Self.MIN_HEIGHT * 0.95 / 16) * 16
-            }
+            // The long side to about 608 px (95% of MIN_HEIGHT).
+            scale = CGFloat(Self.MIN_HEIGHT * 0.95) / max(width, height)
         } else {
-            newWidth  = Int(width  * 0.9 / 16) * 16
-            newHeight = Int(height * 0.9 / 16) * 16
+            scale = 0.9
         }
 
-        return (newWidth, newHeight)
+        return (Self.evenDimension(width * scale), Self.evenDimension(height * scale))
+    }
+
+    /// The nearest even size, at least 2: 4:2:0 video needs even sides.
+    private static func evenDimension(_ value: CGFloat) -> Int {
+        max(2, Int((value / 2).rounded()) * 2)
     }
 
     /// BT.709 SDR colour properties, used to tone-map an HDR source.
