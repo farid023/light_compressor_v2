@@ -24,7 +24,6 @@ import com.gurfdev.light_compressor_v2.lightcompressorlibrary.VideoFormat
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.VideoQuality
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.config.*
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils
-import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.roundDimension
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.video.FrameGrabber
 import com.google.gson.Gson
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -819,8 +818,10 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
                 val originalSize = file.length()
 
-                // Output resolution — mirror Compressor: resizer/custom/source, then
-                // round to even/16, then swap on 90°/270°.
+                // Output resolution — mirror Compressor: resizer/custom/source,
+                // turned upright on 90°/270°, then rounded to what the encoder
+                // takes. The estimate doesn't know the codec, so it rounds for
+                // the default H.264 encoder.
                 val rawWidth: Double
                 val rawHeight: Double
                 when {
@@ -833,11 +834,12 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
                         rawWidth = srcWidth * p; rawHeight = srcHeight * p
                     }
                 }
-                var outWidth = roundDimension(rawWidth)
-                var outHeight = roundDimension(rawHeight)
-                if (rotation == 90 || rotation == 270) {
-                    val tmp = outWidth; outWidth = outHeight; outHeight = tmp
-                }
+                val quarterTurn = rotation == 90 || rotation == 270
+                val (outWidth, outHeight) = CompressorUtils.encoderOutputSize(
+                    MediaFormat.MIMETYPE_VIDEO_AVC,
+                    if (quarterTurn) rawHeight else rawWidth,
+                    if (quarterTurn) rawWidth else rawHeight,
+                )
 
                 // Target video bitrate — the same value compression would request.
                 val targetBitrate =

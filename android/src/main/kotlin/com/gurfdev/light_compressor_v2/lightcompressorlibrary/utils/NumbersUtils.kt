@@ -30,3 +30,28 @@ private fun roundEven(value: Int): Int = value + 1 and 1.inv()
 
 fun roundDimension(value: Double): Int =
     roundEven(((value / 16).roundToInt() * 16))
+
+/**
+ * Rounds a target size to one the encoder takes, without distorting the
+ * picture: each side goes to the nearest multiple of the encoder's own
+ * alignment (at least 2, since 4:2:0 needs even sides). Only when the encoder
+ * rejects that size does it fall back to multiples of 16, which every encoder
+ * takes — at the cost of a slight stretch (1080 becomes 1088).
+ */
+fun alignOutputSize(
+    width: Double,
+    height: Double,
+    widthAlignment: Int,
+    heightAlignment: Int,
+    isSupported: (Int, Int) -> Boolean,
+): Pair<Int, Int> {
+    val aligned = Pair(
+        alignTo(width, widthAlignment.coerceAtLeast(2)),
+        alignTo(height, heightAlignment.coerceAtLeast(2)),
+    )
+    if (isSupported(aligned.first, aligned.second)) return aligned
+    return Pair(roundDimension(width), roundDimension(height))
+}
+
+private fun alignTo(value: Double, alignment: Int): Int =
+    ((value / alignment).roundToInt() * alignment).coerceAtLeast(alignment)

@@ -12,6 +12,7 @@ import androidx.annotation.RequiresApi
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.compressor.Compressor.compressVideo
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.compressor.Compressor.isRunning
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.config.*
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.describeFailure
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.saveVideoInExternal
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.video.Result
 import kotlinx.coroutines.*
@@ -142,8 +143,12 @@ object VideoCompressor : CoroutineScope by MainScope() {
         val semaphore = Semaphore(concurrency)
         for (i in uris.indices) {
 
+            // Every terminal callback for this video goes through `report`, so it
+            // fires exactly once — including for a job cancelled before it ever
+            // ran, which reportIfUnreported below catches.
+            val report = TerminalReport()
             val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
-                listener.onFailure(i, throwable.message ?: "", classifyThrowable(throwable))
+                report.once { listener.onFailure(i, describeFailure(throwable), classifyThrowable(throwable)) }
             }
             val coroutineScope = CoroutineScope(Job() + coroutineExceptionHandler)
 
@@ -175,6 +180,12 @@ object VideoCompressor : CoroutineScope by MainScope() {
                     )
                     finalDesFile = desFile
 
+                    if (desFile == null) {
+                        report.once {
+                            listener.onFailure(i, "Could not create the output file.", CompressionErrorType.UNKNOWN)
+                        }
+                    }
+
                     desFile?.let {
                         listener.onStart(i)
                         val result = startCompression(
@@ -196,16 +207,20 @@ object VideoCompressor : CoroutineScope by MainScope() {
                                 shouldSave = true
                             )
 
-                            listener.onSuccess(i, result.size, savedFile?.path, result.duration, result.videoFormat, result.targetSizeMet, result.passesUsed)
+                            report.once {
+                                listener.onSuccess(i, result.size, savedFile?.path, result.duration, result.videoFormat, result.targetSizeMet, result.passesUsed)
+                            }
                         } else {
                             try {
                                 if (finalDesFile?.exists() == true) finalDesFile.delete()
                             } catch (e: Exception) {}
 
-                            if (result.cancelled) {
-                                listener.onCancelled(i)
-                            } else {
-                                listener.onFailure(i, result.failureMessage ?: "An error has occurred!", result.errorType)
+                            report.once {
+                                if (result.cancelled) {
+                                    listener.onCancelled(i)
+                                } else {
+                                    listener.onFailure(i, result.failureMessage ?: "An error has occurred!", result.errorType)
+                                }
                             }
                         }
                     }
@@ -213,16 +228,28 @@ object VideoCompressor : CoroutineScope by MainScope() {
                     try {
                         if (finalDesFile?.exists() == true) finalDesFile.delete()
                     } catch (e: Exception) {}
-                    if (t is CancellationException) {
-                        listener.onCancelled(i)
-                    } else {
-                        listener.onFailure(i, t.message ?: "An error has occurred!", classifyThrowable(t))
+                    report.once {
+                        if (t is CancellationException) {
+                            listener.onCancelled(i)
+                        } else {
+                            listener.onFailure(i, describeFailure(t), classifyThrowable(t))
+                        }
                     }
                 } finally {
                     if (permitAcquired) semaphore.release()
                     try {
                         if (tempSrcFile?.exists() == true) tempSrcFile.delete()
                     } catch (e: Exception) {}
+                }
+            }.reportIfUnreported(report) { cause ->
+                if (cause is CancellationException) {
+                    listener.onCancelled(i)
+                } else {
+                    listener.onFailure(
+                        i,
+                        cause?.let(::describeFailure) ?: "The compression ended without a result.",
+                        cause?.let(::classifyThrowable) ?: CompressionErrorType.UNKNOWN,
+                    )
                 }
             })
         }

@@ -1,5 +1,6 @@
 package com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils
 
+import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaExtractor
@@ -60,15 +61,22 @@ object CompressorUtils {
                 // IMPORTANT: a profile must be paired with a compatible level, otherwise
                 // many hardware encoders (notably Qualcomm) reject configure() with
                 // error -38 and we silently fall back to Baseline. Pick a profile+level
-                // pair that the encoder actually advertises.
-                val profileLevel = getSupportedProfileLevel(type)
+                // pair that the encoder actually advertises, at the lowest level that
+                // fits this output.
+                val profileLevel = chooseProfileLevel(
+                    type,
+                    outputFormat.getInteger(MediaFormat.KEY_WIDTH),
+                    outputFormat.getInteger(MediaFormat.KEY_HEIGHT),
+                    newFrameRate,
+                    newBitrate,
+                )
                 if (profileLevel != null) {
                     Log.i(
                         "Output file parameters",
-                        "Selected profile=${profileLevel.profile} level=${profileLevel.level}"
+                        "Selected profile=${profileLevel.first} level=${profileLevel.second}"
                     )
-                    setInteger(MediaFormat.KEY_PROFILE, profileLevel.profile)
-                    setInteger(MediaFormat.KEY_LEVEL, profileLevel.level)
+                    setInteger(MediaFormat.KEY_PROFILE, profileLevel.first)
+                    setInteger(MediaFormat.KEY_LEVEL, profileLevel.second)
                 }
                 // If no supported pair is found we deliberately leave profile/level unset
                 // and let the encoder choose its own defaults.
@@ -271,6 +279,42 @@ object CompressorUtils {
      * encoders (e.g. `c2.qti.*`, `c2.exynos.*`, `c2.mtk.*`) are hardware and pass
      * this check.
      */
+    private val encoderCapabilities =
+        java.util.concurrent.ConcurrentHashMap<String, MediaCodecInfo.CodecCapabilities>()
+
+    /**
+     * Capabilities of the encoder that `MediaCodec.createEncoderByType(mime)`
+     * picks — the one the compressor configures — or null when there is none.
+     * The list of encoders can't change while the process runs, so it is
+     * looked up once per type.
+     */
+    fun defaultEncoderCapabilities(mime: String): MediaCodecInfo.CodecCapabilities? {
+        encoderCapabilities[mime]?.let { return it }
+        val capabilities = runCatching {
+            val codec = MediaCodec.createEncoderByType(mime)
+            try {
+                codec.codecInfo.getCapabilitiesForType(mime)
+            } finally {
+                codec.release()
+            }
+        }.getOrNull() ?: return null
+        encoderCapabilities[mime] = capabilities
+        return capabilities
+    }
+
+    /**
+     * The output size for a [width] x [height] target, as encoded (already
+     * upright), rounded to what the [mime] encoder takes without distorting
+     * the picture. See [alignOutputSize].
+     */
+    fun encoderOutputSize(mime: String, width: Double, height: Double): Pair<Int, Int> {
+        val video = defaultEncoderCapabilities(mime)?.videoCapabilities
+            ?: return Pair(roundDimension(width), roundDimension(height))
+        return alignOutputSize(
+            width, height, video.widthAlignment, video.heightAlignment,
+        ) { w, h -> video.isSizeSupported(w, h) }
+    }
+
     fun isHevcHardwareEncoderAvailable(): Boolean =
         runCatching {
             MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { codec ->
@@ -282,25 +326,33 @@ object CompressorUtils {
         }.getOrDefault(false)
 
     /**
-     * Finds a profile+level pair that an available encoder for [type] actually
-     * supports. Preference order is High > Main > Baseline, and within a profile
-     * the highest advertised level is chosen.
+     * Picks the profile and level to request from the encoder the compressor
+     * configures (see [defaultEncoderCapabilities]). Profile preference is
+     * High > Main > Baseline (HEVC: Main). The level is the lowest that fits
+     * the output's size, frame rate and bitrate, capped at that encoder's
+     * highest for the profile — never simply the highest any encoder
+     * advertises, which made 1080p declare level 5 or 6.
      *
-     * Returns `null` when no encoder/capabilities are found, in which case the
-     * caller should leave the profile/level unset (the encoder picks defaults).
+     * Returns `null` when the encoder advertises none of these profiles, in
+     * which case the caller leaves profile/level unset (the encoder picks
+     * defaults).
      *
      * Pairing a profile with a compatible level is required: setting
      * [MediaFormat.KEY_PROFILE] without [MediaFormat.KEY_LEVEL] makes many
      * hardware encoders fail `configure()` with error -38.
      */
-    private fun getSupportedProfileLevel(type: String?): MediaCodecInfo.CodecProfileLevel? {
+    private fun chooseProfileLevel(
+        type: String?,
+        width: Int,
+        height: Int,
+        frameRate: Int,
+        bitrate: Int,
+    ): Pair<Int, Int>? {
         if (type == null) return null
+        val profileLevels = defaultEncoderCapabilities(type)?.profileLevels ?: return null
+        val hevc = type == MediaFormat.MIMETYPE_VIDEO_HEVC
 
-        val capabilities = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
-            .filter { codec -> codec.isEncoder && type in codec.supportedTypes }
-            .mapNotNull { codec -> runCatching { codec.getCapabilitiesForType(type) }.getOrNull() }
-
-        val preferenceOrder = if (type == "video/hevc") {
+        val preferenceOrder = if (hevc) {
             // HEVC Main covers 8-bit 4:2:0 video, which is what this surface
             // pipeline produces.
             listOf(MediaCodecInfo.CodecProfileLevel.HEVCProfileMain)
@@ -313,17 +365,15 @@ object CompressorUtils {
         }
 
         for (profile in preferenceOrder) {
-            var best: MediaCodecInfo.CodecProfileLevel? = null
-            capabilities.forEach { capabilitiesForType ->
-                capabilitiesForType.profileLevels.forEach { profileLevel ->
-                    if (profileLevel.profile == profile &&
-                        (best == null || profileLevel.level > best!!.level)
-                    ) {
-                        best = profileLevel
-                    }
-                }
+            val encoderMax = profileLevels
+                .filter { it.profile == profile }
+                .maxOfOrNull { it.level } ?: continue
+            val required = if (hevc) {
+                minimumHevcLevel(width, height, frameRate, bitrate)
+            } else {
+                minimumAvcLevel(width, height, frameRate, bitrate, profile)
             }
-            if (best != null) return best
+            return Pair(profile, chooseLevel(required, encoderMax))
         }
 
         return null

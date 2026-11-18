@@ -10,6 +10,7 @@ import com.gurfdev.light_compressor_v2.lightcompressorlibrary.CompressionProgres
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.ProgressInfo
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.VideoFormat
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.config.Configuration
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.encoderOutputSize
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.findTrack
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.isHdr
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.isHevcHardwareEncoderAvailable
@@ -19,7 +20,8 @@ import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUt
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.printException
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.remapDolbyVisionForDecoding
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.CompressorUtils.setOutputFileParameters
-import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.roundDimension
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.StallWatchdog
+import com.gurfdev.light_compressor_v2.lightcompressorlibrary.utils.describeFailure
 import com.gurfdev.light_compressor_v2.lightcompressorlibrary.video.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,6 +50,10 @@ object Compressor {
     // H.265 High Efficiency Video Coding
     private const val HEVC_MIME = "video/hevc"
     private const val MEDIACODEC_TIMEOUT_DEFAULT = 100L
+
+    // A codec that delivers nothing for this long is treated as stuck, so the
+    // call fails instead of never completing.
+    private const val STALL_TIMEOUT_MS = 30_000L
 
     // Tag for opt-in debug logging (gated on Configuration.debugLogging).
     private const val DEBUG_TAG = "LightCompressor"
@@ -103,7 +109,7 @@ object Compressor {
                 return@withContext Result(
                     index,
                     success = false,
-                    failureMessage = "Retriever failed: ${inner.message}",
+                    failureMessage = "Retriever failed: ${describeFailure(inner)}",
                     errorType = CompressionErrorType.UNSUPPORTED
                 )
             }
@@ -130,7 +136,7 @@ object Compressor {
                 return@withContext Result(
                     index,
                     success = false,
-                    failureMessage = "Extractor failed: ${inner.message}",
+                    failureMessage = "Extractor failed: ${describeFailure(inner)}",
                     errorType = CompressionErrorType.UNSUPPORTED
                 )
             }
@@ -263,12 +269,31 @@ object Compressor {
         if (configuration.isMinBitrateCheckEnabled && bitrate > 0 && bitrate <= MIN_BITRATE)
             return@withContext Result(index, success = false, failureMessage = INVALID_BITRATE)
 
+        // Decide the output codec. H.265 is used only when the caller asked for
+        // it AND the device exposes a hardware HEVC encoder; otherwise we fall
+        // back to H.264 so compatibility is never silently broken. Decided
+        // before the size, which is rounded to what that encoder takes.
+        val outputMime =
+            if (configuration.videoFormat == VideoFormat.H265 && isHevcHardwareEncoderAvailable())
+                HEVC_MIME
+            else
+                MIME_TYPE
+
         //Handle new width and height values. Computed before the bitrate so the
-        //target-size solver can scale its floor to the OUTPUT resolution.
+        //target-size solver can scale its floor to the OUTPUT resolution. The
+        //encoder gets the frame upright (sides swapped for a quarter-turn
+        //source), so the size is aligned in that orientation and kept in the
+        //stored one until the swap below.
         val resizer = configuration.resizer
         val target = resizer?.resize(width, height) ?: Pair(width, height)
-        var newWidth = roundDimension(target.first)
-        var newHeight = roundDimension(target.second)
+        val quarterTurn = rotation == 90 || rotation == 270
+        val upright = encoderOutputSize(
+            outputMime,
+            if (quarterTurn) target.second else target.first,
+            if (quarterTurn) target.first else target.second,
+        )
+        var newWidth = if (quarterTurn) upright.second else upright.first
+        var newHeight = if (quarterTurn) upright.first else upright.second
 
         // Handle new bitrate value. Precedence: an explicit videoBitrateInMbps
         // wins; else a requested target output size is solved for; else the
@@ -320,15 +345,6 @@ object Compressor {
         // metadata-only rotation — stored frames are unchanged and players rotate
         // on playback. start() writes it via mediaMuxer.setOrientationHint().
         configuration.rotationDegrees?.let { rotation = (rotation + it) % 360 }
-
-        // Decide the output codec. H.265 is used only when the caller asked for
-        // it AND the device exposes a hardware HEVC encoder; otherwise we fall
-        // back to H.264 so compatibility is never silently broken.
-        val outputMime =
-            if (configuration.videoFormat == VideoFormat.H265 && isHevcHardwareEncoderAvailable())
-                HEVC_MIME
-            else
-                MIME_TYPE
 
         // Re-encode the audio to AAC up front when a bitrate is
         // requested, capturing the encoder's output format + buffered samples so
@@ -601,6 +617,7 @@ object Compressor {
                     //Move to executing state
                     decoder.start()
 
+                    val watchdog = StallWatchdog(STALL_TIMEOUT_MS)
                     while (!outputDone) {
                         if (!inputDone) {
 
@@ -673,6 +690,7 @@ object Compressor {
                                     cancelled = true
                                 )
                             }
+                            watchdog.check("video transcode")
 
                             //Encoder
                             val encoderStatus =
@@ -683,6 +701,7 @@ object Compressor {
                                     false
 
                                 encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                                    watchdog.progressed()
                                     // Add every track and start the muxer exactly
                                     // once, when the encoder publishes its real
                                     // output format (which carries the csd needed
@@ -710,6 +729,7 @@ object Compressor {
 
                                 encoderStatus < 0 -> throw RuntimeException("unexpected result from encoder.dequeueOutputBuffer: $encoderStatus")
                                 else -> {
+                                    watchdog.progressed()
                                     val encodedData = encoder.getOutputBuffer(encoderStatus)
                                         ?: throw RuntimeException("encoderOutputBuffer $encoderStatus was null")
 
@@ -748,6 +768,7 @@ object Compressor {
 
                                 decoderStatus < 0 -> throw RuntimeException("unexpected result from decoder.dequeueOutputBuffer: $decoderStatus")
                                 else -> {
+                                    watchdog.progressed()
                                     val pts = bufferInfo.presentationTimeUs
                                     when {
                                         // Trim (9a): past the kept range — stop here.
@@ -793,7 +814,7 @@ object Compressor {
                                                     errorWait = true
                                                     Log.e(
                                                         "Compressor",
-                                                        e.message ?: "Compression failed at swapping buffer"
+                                                        "Compression failed at swapping buffer: ${describeFailure(e)}"
                                                     )
                                                 }
 
@@ -845,7 +866,7 @@ object Compressor {
 
                 } catch (exception: Exception) {
                     printException(exception)
-                    return Result(id, success = false, failureMessage = exception.message)
+                    return Result(id, success = false, failureMessage = describeFailure(exception))
                 } finally {
                     extractor.unselectTrack(videoIndex)
 
@@ -900,7 +921,7 @@ object Compressor {
                 return Result(
                     id,
                     success = false,
-                    failureMessage = exception.message ?: "An error occurred during video compression setup"
+                    failureMessage = describeFailure(exception)
                 )
             } finally {
                 // Always release the native muxer — including the early-return
@@ -1030,7 +1051,9 @@ object Compressor {
             var pendingPts = 0L
             var pendingEos = false
 
+            val watchdog = StallWatchdog(STALL_TIMEOUT_MS)
             while (!encoderDone) {
+                watchdog.check("audio transcode")
                 // 1) Feed the extractor into the decoder.
                 if (!extractorDone) {
                     val inIndex = decoder.dequeueInputBuffer(timeoutUs)
@@ -1065,6 +1088,7 @@ object Compressor {
                 if (!decoderDone && pendingIndex < 0) {
                     val outIndex = decoder.dequeueOutputBuffer(info, timeoutUs)
                     if (outIndex >= 0) {
+                        watchdog.progressed()
                         pendingIndex = outIndex
                         pendingOffset = info.offset
                         pendingSize = info.size
@@ -1098,8 +1122,10 @@ object Compressor {
                 // 4) Drain the encoder, buffering samples + capturing the format.
                 val encOut = encoder.dequeueOutputBuffer(info, timeoutUs)
                 if (encOut == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    watchdog.progressed()
                     encoderFormat = encoder.outputFormat
                 } else if (encOut >= 0) {
+                    watchdog.progressed()
                     val isConfig = (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
                     if (info.size > 0 && !isConfig) {
                         val out = encoder.getOutputBuffer(encOut)!!
