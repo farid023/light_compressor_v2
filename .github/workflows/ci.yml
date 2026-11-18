@@ -49,6 +49,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Cache Gradle's downloads: fetching them on every run hit Maven
+          # Central's rate limit (HTTP 429) once.
+          cache: gradle
+          cache-dependency-path: |
+            example/android/*.gradle*
+            example/android/gradle/wrapper/gradle-wrapper.properties
+            android/*.gradle*
 
       - uses: subosito/flutter-action@v2
         with:
