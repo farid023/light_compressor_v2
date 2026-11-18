@@ -15,6 +15,7 @@ class OnSuccess implements Result {
     this.usedFormat = VideoFormat.h264,
     this.targetSizeMet = true,
     this.passesUsed = 1,
+    this.isHdr = false,
   });
 
   /// The absolute path to the successfully compressed video file.
@@ -56,6 +57,12 @@ class OnSuccess implements Result {
   /// first pass overshot the target, triggering a corrective second pass.
   /// Defaults to `1`.
   final int passesUsed;
+
+  /// Whether the output is HDR (10-bit HEVC with HLG or PQ colour).
+  ///
+  /// `true` only when [HdrMode.keep] was requested, the source was HDR, and the
+  /// platform could keep it. Otherwise the output is SDR. Defaults to `false`.
+  final bool isHdr;
 }
 
 /// Category of a compression failure. Mirrors the typed exceptions thrown by the

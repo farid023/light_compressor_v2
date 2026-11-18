@@ -279,7 +279,8 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
                         "compressedSize" to size,
                         "usedFormat" to videoFormat,
                         "targetSizeMet" to targetSizeMet,
-                        "passesUsed" to passesUsed
+                        "passesUsed" to passesUsed,
+                        "isHdr" to false
                     ))
                 }
 
@@ -451,7 +452,8 @@ class LightCompressorPlugin : FlutterPlugin, MethodCallHandler,
                         "duration" to duration,
                         "usedFormat" to videoFormat,
                         "targetSizeMet" to targetSizeMet,
-                        "passesUsed" to passesUsed
+                        "passesUsed" to passesUsed,
+                        "isHdr" to false
                     ))
                 }
 

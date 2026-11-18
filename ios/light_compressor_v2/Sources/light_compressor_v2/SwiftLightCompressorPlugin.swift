@@ -142,6 +142,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
                         keepOriginalResolution: keepOriginalResolution,
                         videoSize: videoSize,
                         videoFormat: videoFormat,
+                        keepHdr: (args["hdrMode"] as? String) == "keep",
                         targetSizeBytes: targetSizeBytes,
                         videoFps: videoFps,
                         audioBitrate: audioBitrate,
@@ -173,7 +174,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
                 case .onStart:
                     break
 
-                case .onSuccess(let index, let url, let duration, let usedFormat, let targetSizeMet, let passesUsed):
+                case .onSuccess(let index, let url, let duration, let usedFormat, let targetSizeMet, let passesUsed, let isHdr):
                     if saveInGallery {
                         PHPhotoLibrary.shared().performChanges {
                             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
@@ -192,6 +193,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
                         let usedFormat: String
                         let targetSizeMet: Bool
                         let passesUsed: Int
+                        let isHdr: Bool
                     }
                     let response = SuccessResponse(
                         onSuccess: url.path,
@@ -201,7 +203,8 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
                         compressedSize: compressedSize,
                         usedFormat: usedFormat.wireValue,
                         targetSizeMet: targetSizeMet,
-                        passesUsed: passesUsed
+                        passesUsed: passesUsed,
+                        isHdr: isHdr
                     )
                     replyOnce(response.toJson)
 
@@ -265,6 +268,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
             keepOriginalResolution: keepOriginalResolution,
             videoSize: videoSize,
             videoFormat: VideoFormat.from(wire: args["videoFormat"] as? String),
+            keepHdr: (args["hdrMode"] as? String) == "keep",
             targetSizeBytes: targetSizeBytes,
             videoFps: videoFps,
             audioBitrate: audioBitrate,
@@ -338,7 +342,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
                 case .onStart:
                     break
 
-                case .onSuccess(let index, let url, let duration, let usedFormat, let targetSizeMet, let passesUsed):
+                case .onSuccess(let index, let url, let duration, let usedFormat, let targetSizeMet, let passesUsed, let isHdr):
                     if saveInGallery {
                         PHPhotoLibrary.shared().performChanges {
                             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
@@ -356,6 +360,7 @@ public class SwiftLightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamH
                         "usedFormat": usedFormat.wireValue,
                         "targetSizeMet": targetSizeMet,
                         "passesUsed": passesUsed,
+                        "isHdr": isHdr,
                     ])
 
                 case .onFailure(let index, let error):

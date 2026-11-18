@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import ImageIO
+import VideoToolbox
 
 /// Desired quality level for video compression.
 public enum VideoQuality {
@@ -33,8 +34,9 @@ public enum CompressionResult {
     /// Compression succeeded. Contains the video index, output URL, video
     /// duration in seconds, the codec actually used (which may differ from the
     /// requested one if H.265 fell back to H.264), whether a requested target
-    /// output size was met, and the number of encode passes run (1 or 2).
-    case onSuccess(Int, URL, Double, VideoFormat, Bool, Int)
+    /// output size was met, the number of encode passes run (1 or 2), and
+    /// whether the output is HDR (kept from an HDR source on request).
+    case onSuccess(Int, URL, Double, VideoFormat, Bool, Int, Bool)
     /// Compression failed. Contains the video index and error.
     case onFailure(Int, CompressionError)
     /// Compression was cancelled by the user.
@@ -133,6 +135,8 @@ public struct LightCompressor {
             public let keepOriginalResolution: Bool
             public let videoSize: CGSize?
             public let videoFormat: VideoFormat
+            // Keep an HDR source as 10-bit HEVC instead of tone-mapping it.
+            public let keepHdr: Bool
             public let twoPass: Bool
             public let trimStartMs: Int?
             public let trimEndMs: Int?
@@ -155,6 +159,7 @@ public struct LightCompressor {
                 keepOriginalResolution: Bool = false,
                 videoSize: CGSize? = nil,
                 videoFormat: VideoFormat = .h264,
+                keepHdr: Bool = false,
                 targetSizeBytes: Int? = nil,
                 videoFps: Int? = nil,
                 audioBitrate: Int? = nil,
@@ -180,6 +185,7 @@ public struct LightCompressor {
                 self.keepOriginalResolution = keepOriginalResolution
                 self.videoSize = videoSize
                 self.videoFormat = videoFormat
+                self.keepHdr = keepHdr
                 self.twoPass = twoPass
                 self.trimStartMs = trimStartMs
                 self.trimEndMs = trimEndMs
@@ -577,10 +583,20 @@ public struct LightCompressor {
             let frameIntervalSeconds =
                 frameDropEnabled ? 1.0 / Double(configuration.videoFps!) : 0.0
 
+            // Keep HDR: an HDR source is written as 10-bit HEVC in its own
+            // colour when asked and possible. Colour adjustments keep the SDR
+            // path (CIColorControls in HDR is not verified).
+            let colourAdjust = configuration.brightness != nil
+                || configuration.contrast != nil || configuration.saturation != nil
+            let keepHDR = configuration.keepHdr && !colourAdjust
+                && Self.isHDR(videoTrack) && Self.colorProperties(videoTrack) != nil
+                && Self.canEncodeHDR(width: size.width, height: size.height)
+
             // Resolve the output codec: use H.265 only when requested AND the
-            // device supports HEVC encoding; otherwise fall back to H.264.
-            let resolvedFormat: VideoFormat =
-                (configuration.videoFormat == .h265 && Self.isHEVCEncodingSupported()) ? .h265 : .h264
+            // device supports HEVC encoding; otherwise fall back to H.264. A kept
+            // HDR source is always HEVC: 10-bit HDR needs it.
+            let resolvedFormat: VideoFormat = keepHDR ? .h265
+                : (configuration.videoFormat == .h265 && Self.isHEVCEncodingSupported()) ? .h265 : .h264
 
             // Two-pass. Enabled only when requested AND a target size
             // was set AND it is reachable (a floor-bound pass 1 can't be improved
@@ -596,7 +612,7 @@ public struct LightCompressor {
             if configuration.debugLogging {
                 NSLog("[LightCompressor] plan #\(index) out=\(destination.lastPathComponent) "
                     + "dims=\(size.width)x\(size.height) bitrate=\(newBitrate) "
-                    + "codec=\(resolvedFormat == .h265 ? "h265" : "h264") "
+                    + "codec=\(resolvedFormat == .h265 ? "h265" : "h264") hdr=\(keepHDR) "
                     + "fps=\(configuration.videoFps.map(String.init) ?? "src") "
                     + "target=\(configuration.targetSizeBytes.map(String.init) ?? "-") "
                     + "targetMet=\(targetSizeMet) twoPass=\(twoPassEnabled) "
@@ -627,7 +643,7 @@ public struct LightCompressor {
                 case .success(let url):
                     completion(.onSuccess(
                         index, url, durationInSeconds, resolvedFormat,
-                        targetSizeMet, passesUsed))
+                        targetSizeMet, passesUsed, keepHDR))
                 }
                 onDone()
             }
@@ -636,6 +652,7 @@ public struct LightCompressor {
             encodePass(
                 index: index, videoAsset: videoAsset, videoTrack: videoTrack,
                 size: size, bitrate: newBitrate, resolvedFormat: resolvedFormat,
+                keepHDR: keepHDR,
                 frameDropEnabled: frameDropEnabled,
                 frameIntervalSeconds: frameIntervalSeconds, totalFrames: totalFrames,
                 trimRange: trimRange,
@@ -675,6 +692,7 @@ public struct LightCompressor {
                 self.encodePass(
                     index: index, videoAsset: videoAsset, videoTrack: videoTrack,
                     size: size, bitrate: Int(adjusted), resolvedFormat: resolvedFormat,
+                    keepHDR: keepHDR,
                     frameDropEnabled: frameDropEnabled,
                     frameIntervalSeconds: frameIntervalSeconds, totalFrames: totalFrames,
                     trimRange: trimRange,
@@ -750,6 +768,7 @@ public struct LightCompressor {
         size: (width: Int, height: Int),
         bitrate: Int,
         resolvedFormat: VideoFormat,
+        keepHDR: Bool,
         frameDropEnabled: Bool,
         frameIntervalSeconds: Double,
         totalFrames: Double,
@@ -780,7 +799,8 @@ public struct LightCompressor {
                 width: size.width,
                 height: size.height,
                 format: resolvedFormat,
-                toneMapToSDR: sourceIsHDR))
+                toneMapToSDR: sourceIsHDR && !keepHDR,
+                keepHDRFrom: keepHDR ? videoTrack : nil))
         videoWriterInput.expectsMediaDataInRealTime = true
         // Rotate (9b): compose the requested quarter-turn onto the source
         // orientation (cheap container-metadata rotation).
@@ -799,17 +819,21 @@ public struct LightCompressor {
         }
         videoWriter.add(videoWriterInput)
 
-        // Video reader. The output is 8-bit, so an HDR source (HLG / PQ, e.g.
-        // an iPhone's Dolby Vision recording) is read straight into BT.709:
-        // AVFoundation tone-maps it to SDR on the way. Read as-is, the HLG
-        // signal would be quantised to 8 bits and the writer would inherit the
-        // HLG tags — a non-standard file that shows banding or washed-out
-        // colour. SDR sources keep the untouched path.
+        // Video reader. The output is 8-bit unless HDR is kept, so an HDR
+        // source (HLG / PQ, e.g. an iPhone's Dolby Vision recording) is read
+        // straight into BT.709: AVFoundation tone-maps it to SDR on the way.
+        // Read as-is into 8 bits, the HLG signal would be quantised and the
+        // writer would inherit the HLG tags — a non-standard file that shows
+        // banding or washed-out colour. A kept HDR source is read 10-bit in its
+        // own colour instead. SDR sources keep the untouched path.
         var videoReaderSettings: [String: AnyObject] = [
             kCVPixelBufferPixelFormatTypeKey as String:
                 Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) as AnyObject
         ]
-        if sourceIsHDR {
+        if keepHDR {
+            videoReaderSettings[kCVPixelBufferPixelFormatTypeKey as String] =
+                Int(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange) as AnyObject
+        } else if sourceIsHDR {
             videoReaderSettings[AVVideoColorPropertiesKey] =
                 Self.sdrColorProperties as AnyObject
         }
@@ -1245,6 +1269,45 @@ public struct LightCompressor {
             || transfer == (kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String)
     }
 
+    /// The track's colour tags (primaries, transfer function, matrix) as writer
+    /// colour properties, or nil when any of them is missing.
+    static func colorProperties(_ track: AVAssetTrack) -> [String: String]? {
+        guard let desc = (track.formatDescriptions as? [CMFormatDescription])?.first,
+              let primaries = CMFormatDescriptionGetExtension(
+                desc, extensionKey: kCVImageBufferColorPrimariesKey) as? String,
+              let transfer = CMFormatDescriptionGetExtension(
+                desc, extensionKey: kCVImageBufferTransferFunctionKey) as? String,
+              let matrix = CMFormatDescriptionGetExtension(
+                desc, extensionKey: kCVImageBufferYCbCrMatrixKey) as? String else {
+            return nil
+        }
+        return [
+            AVVideoColorPrimariesKey: primaries,
+            AVVideoTransferFunctionKey: transfer,
+            AVVideoYCbCrMatrixKey: matrix,
+        ]
+    }
+
+    /// Whether this device can encode 10-bit HEVC (Main10) at this size, per
+    /// the profiles VideoToolbox lists for its HEVC encoder.
+    private static func canEncodeHDR(width: Int, height: Int) -> Bool {
+        guard isHEVCEncodingSupported() else { return false }
+        var supported: CFDictionary?
+        let status = VTCopySupportedPropertyDictionaryForEncoder(
+            width: Int32(width), height: Int32(height),
+            codecType: kCMVideoCodecType_HEVC, encoderSpecification: nil,
+            encoderIDOut: nil, supportedPropertiesOut: &supported)
+        guard status == noErr,
+              let properties = supported as? [String: Any],
+              let profileLevel = properties[kVTCompressionPropertyKey_ProfileLevel as String]
+                as? [String: Any],
+              let values = profileLevel[kVTPropertySupportedValueListKey as String] as? [String]
+        else {
+            return false
+        }
+        return values.contains(kVTProfileLevel_HEVC_Main10_AutoLevel as String)
+    }
+
     /// Whether the track's audio is AAC (any profile) — the only audio the .mp4
     /// output takes as-is. A track without a format description counts as not
     /// AAC, so it is re-encoded rather than copied blind.
@@ -1270,15 +1333,38 @@ public struct LightCompressor {
     }
 
     private func getVideoWriterSettings(bitrate: Int, width: Int, height: Int, format: VideoFormat,
-                                        toneMapToSDR: Bool) -> [String: AnyObject] {
+                                        toneMapToSDR: Bool,
+                                        keepHDRFrom hdrTrack: AVAssetTrack? = nil) -> [String: AnyObject] {
         // NOTE: the frame rate is reduced by actually dropping source frames in
         // the writer loop (see frameDropEnabled). We deliberately do NOT set
         // AVVideoExpectedSourceFrameRateKey / AVVideoAverageNonDroppableFrameRateKey
         // here — they are only encoder hints, and the iOS simulator's software
         // encoder stalls when they are present, hanging the compression.
-        let compressionSettings: [String: AnyObject] = [
+        var compressionSettings: [String: AnyObject] = [
             AVVideoAverageBitRateKey: bitrate as AnyObject
         ]
+        // Keep HDR: 10-bit HEVC in the source's colour, with a PQ source's HDR10
+        // static metadata carried over. Dolby Vision is not copied — a file must
+        // not declare it without its per-frame metadata — the encoder
+        // regenerates it for HLG itself (HDRMetadataInsertionMode is Auto).
+        var hdrColor: [String: String]?
+        if let hdrTrack, let color = Self.colorProperties(hdrTrack) {
+            hdrColor = color
+            compressionSettings[AVVideoProfileLevelKey] =
+                kVTProfileLevel_HEVC_Main10_AutoLevel as AnyObject
+            if let desc = (hdrTrack.formatDescriptions as? [CMFormatDescription])?.first {
+                if let mastering = CMFormatDescriptionGetExtension(
+                    desc, extensionKey: kCMFormatDescriptionExtension_MasteringDisplayColorVolume) {
+                    compressionSettings[kVTCompressionPropertyKey_MasteringDisplayColorVolume as String] =
+                        mastering
+                }
+                if let lightLevel = CMFormatDescriptionGetExtension(
+                    desc, extensionKey: kCMFormatDescriptionExtension_ContentLightLevelInfo) {
+                    compressionSettings[kVTCompressionPropertyKey_ContentLightLevelInfo as String] =
+                        lightLevel
+                }
+            }
+        }
         let codec: AVVideoCodecType = (format == .h265) ? .hevc : .h264
         var settings: [String: AnyObject] = [
             AVVideoCodecKey:                  codec as AnyObject,
@@ -1289,6 +1375,9 @@ public struct LightCompressor {
         // Tag a tone-mapped HDR source as the SDR it now is.
         if toneMapToSDR {
             settings[AVVideoColorPropertiesKey] = Self.sdrColorProperties as AnyObject
+        }
+        if let hdrColor {
+            settings[AVVideoColorPropertiesKey] = hdrColor as AnyObject
         }
         return settings
     }

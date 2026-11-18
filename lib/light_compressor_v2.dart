@@ -6,6 +6,7 @@ export 'src/compression_estimate.dart';
 export 'src/compression_progress.dart';
 export 'src/compression_result.dart';
 export 'src/exceptions.dart';
+export 'src/hdr_mode.dart';
 export 'src/ios_config.dart';
 export 'src/light_compressor.dart';
 export 'src/media_info.dart';

@@ -80,6 +80,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                             keepOriginalResolution: keepOriginalResolution,
                             videoSize: videoWidth == nil || videoHeight == nil ? nil : CGSize(width: videoWidth!, height: videoHeight!),
                             videoFormat: VideoFormat.from(wire: myArgs["videoFormat"] as? String),
+                            keepHdr: (myArgs["hdrMode"] as? String) == "keep",
                             targetSizeBytes: myArgs["targetSizeBytes"] as? Int,
                             videoFps: myArgs["videoFps"] as? Int,
                             audioBitrate: myArgs["audioBitrate"] as? Int,
@@ -111,7 +112,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                     completion: { compressionResult in
                         
                         switch compressionResult {
-                        case .onSuccess(let index, let outputURL, let duration, let usedFormat, let targetSizeMet, let passesUsed):
+                        case .onSuccess(let index, let outputURL, let duration, let usedFormat, let targetSizeMet, let passesUsed, let isHdr):
                             if(saveInGallery) {
                                 DispatchQueue.main.async {
                                     PHPhotoLibrary.shared().performChanges({
@@ -132,6 +133,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                                 let usedFormat: String
                                 let targetSizeMet: Bool
                                 let passesUsed: Int
+                                let isHdr: Bool
                             }
                             let response = SuccessResponse(
                                 onSuccess: outputURL.path,
@@ -141,7 +143,8 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                                 compressedSize: compressedSize,
                                 usedFormat: usedFormat.wireValue,
                                 targetSizeMet: targetSizeMet,
-                                passesUsed: passesUsed
+                                passesUsed: passesUsed,
+                                isHdr: isHdr
                             )
                             replyOnce(response.toJson)
                             
@@ -236,6 +239,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
             keepOriginalResolution: keepOriginalResolution,
             videoSize: videoSize,
             videoFormat: VideoFormat.from(wire: args["videoFormat"] as? String),
+            keepHdr: (args["hdrMode"] as? String) == "keep",
             targetSizeBytes: targetSizeBytes,
             videoFps: videoFps,
             audioBitrate: audioBitrate,
@@ -314,7 +318,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                 case .onStart:
                     break
 
-                case .onSuccess(let index, let outputURL, let duration, let usedFormat, let targetSizeMet, let passesUsed):
+                case .onSuccess(let index, let outputURL, let duration, let usedFormat, let targetSizeMet, let passesUsed, let isHdr):
                     if saveInGallery {
                         DispatchQueue.main.async {
                             PHPhotoLibrary.shared().performChanges {
@@ -334,6 +338,7 @@ public class LightCompressorPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
                         "usedFormat": usedFormat.wireValue,
                         "targetSizeMet": targetSizeMet,
                         "passesUsed": passesUsed,
+                        "isHdr": isHdr,
                     ])
 
                 case .onFailure(let index, let error):
