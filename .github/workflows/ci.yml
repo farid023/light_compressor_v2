@@ -15,6 +15,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned to the version the repo is developed and device-tested on, so
+          # a new stable can't turn CI red on its own; moving to a newer Flutter
+          # is a deliberate change.
+          flutter-version: 3.47.9
 
       - name: Install dependencies
         run: flutter pub get
@@ -49,6 +53,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned to the version the repo is developed and device-tested on, so
+          # a new stable can't turn CI red on its own; moving to a newer Flutter
+          # is a deliberate change.
+          flutter-version: 3.47.9
 
       # Generates example/android/local.properties and the plugin wiring the
       # plugin's Gradle module is built through.
