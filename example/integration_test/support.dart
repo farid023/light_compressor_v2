@@ -40,6 +40,11 @@ const String kHdrSampleAssetKey = 'integration_test/assets/sample_hdr.mp4';
 const String kNoHdrClipSkipReason =
     'Add the HDR clip at example/$kHdrSampleAssetKey to run this test.';
 
+/// Pubspec-relative key of a short HDR10 clip: 10-bit HEVC, PQ / BT.2020, with
+/// mastering-display and content-light-level metadata. Regenerate from
+/// sample_hdr.mp4 with `tools/make_hdr_pq.swift`.
+const String kHdrPqSampleAssetKey = 'integration_test/assets/sample_hdr_pq.mp4';
+
 /// Anything smaller than this is treated as the committed placeholder.
 const int _minRealClipBytes = 5000;
 
@@ -63,6 +68,10 @@ Future<String?> preparePcmAudioSource() =>
 /// Same as [prepareSampleSource] for the HDR clip.
 Future<String?> prepareHdrSampleSource() =>
     _prepareAsset(kHdrSampleAssetKey, 'source_hdr.mp4');
+
+/// Same as [prepareSampleSource] for the PQ (HDR10) clip.
+Future<String?> prepareHdrPqSampleSource() =>
+    _prepareAsset(kHdrPqSampleAssetKey, 'source_hdr_pq.mp4');
 
 Future<String?> _prepareAsset(String assetKey, String fileName) async {
   final ByteData data;
@@ -98,4 +107,98 @@ Future<void> expectReadableVideo(
   final String thumb = await compressor.getVideoThumbnail(path);
   expect(File(thumb).existsSync(), isTrue);
   expect(File(thumb).lengthSync(), greaterThan(0));
+}
+
+/// The bytes after the first [tag] box header in an MP4 file, or null when the
+/// file has none. A plain byte scan — enough for the small sample-description
+/// boxes the tests read from a short output (avcC, hvcC, colr, dvvC).
+Uint8List? mp4BoxBody(Uint8List bytes, String tag) {
+  final List<int> t = tag.codeUnits;
+  for (int i = 4; i + 4 <= bytes.length; i++) {
+    if (bytes[i] == t[0] &&
+        bytes[i + 1] == t[1] &&
+        bytes[i + 2] == t[2] &&
+        bytes[i + 3] == t[3]) {
+      return Uint8List.sublistView(bytes, i + 4);
+    }
+  }
+  return null;
+}
+
+/// What an MP4 file declares about its video, read straight from the file
+/// (no ffprobe).
+class Mp4VideoFacts {
+  const Mp4VideoFacts({
+    this.primaries,
+    this.transfer,
+    this.matrix,
+    this.hevcProfile,
+    this.dolbyVisionProfile,
+    this.dolbyVisionRpus = 0,
+  });
+
+  /// `colr` (nclx) codes per ISO/IEC 23091-2: primaries and matrix 1 = BT.709,
+  /// 9 = BT.2020; transfer 1 = BT.709, 16 = PQ, 18 = HLG. Null without `colr`.
+  final int? primaries;
+  final int? transfer;
+  final int? matrix;
+
+  /// HEVC `general_profile_idc` (1 = Main, 2 = Main10); null for H.264.
+  final int? hevcProfile;
+
+  /// The Dolby Vision profile from `dvvC`, or null when not declared.
+  final int? dolbyVisionProfile;
+
+  /// Dolby Vision RPU NAL units (HEVC type 62) in `mdat`.
+  final int dolbyVisionRpus;
+}
+
+int _u32(Uint8List b, int i) =>
+    (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
+
+/// Reads [Mp4VideoFacts] from the MP4 at [path].
+Mp4VideoFacts readMp4VideoFacts(String path) {
+  final Uint8List bytes = File(path).readAsBytesSync();
+  final Uint8List? colr = mp4BoxBody(bytes, 'colr');
+  final bool nclx =
+      colr != null && String.fromCharCodes(colr.sublist(0, 4)) == 'nclx';
+  final Uint8List? hvcC = mp4BoxBody(bytes, 'hvcC');
+  final Uint8List? dvvC = mp4BoxBody(bytes, 'dvvC');
+
+  // Walk the top-level boxes to mdat, then count HEVC NAL units of type 62.
+  int rpus = 0;
+  if (hvcC != null) {
+    int pos = 0;
+    while (pos + 8 <= bytes.length) {
+      int size = _u32(bytes, pos);
+      int header = 8;
+      if (size == 1) {
+        size = (_u32(bytes, pos + 8) << 32) | _u32(bytes, pos + 12);
+        header = 16;
+      } else if (size == 0) {
+        size = bytes.length - pos;
+      }
+      if (size < header) break;
+      if (String.fromCharCodes(bytes.sublist(pos + 4, pos + 8)) == 'mdat') {
+        int p = pos + header;
+        final int end = pos + size;
+        while (p + 5 <= end) {
+          final int n = _u32(bytes, p);
+          if (n == 0 || p + 4 + n > end) break;
+          if ((bytes[p + 4] >> 1) & 0x3f == 62) rpus++;
+          p += 4 + n;
+        }
+      }
+      pos += size;
+    }
+  }
+
+  return Mp4VideoFacts(
+    primaries: nclx ? (colr[4] << 8) | colr[5] : null,
+    transfer: nclx ? (colr[6] << 8) | colr[7] : null,
+    matrix: nclx ? (colr[8] << 8) | colr[9] : null,
+    hevcProfile: hvcC == null ? null : hvcC[1] & 0x1f,
+    dolbyVisionProfile: dvvC == null ? null : dvvC[2] >> 1,
+    dolbyVisionRpus: rpus,
+  );
 }

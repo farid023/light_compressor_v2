@@ -135,6 +135,10 @@ class LightCompressor {
   ///   hardware support; on devices without it the compressor automatically
   ///   falls back to H.264. The format actually used is reported by
   ///   [OnSuccess.usedFormat].
+  /// * [hdrMode] — What happens to an HDR source. Defaults to
+  ///   [HdrMode.toSdr] (tone-mapped to SDR). [HdrMode.keep] writes 10-bit HEVC
+  ///   with the source's HLG/PQ colour on iOS/macOS; see [HdrMode]. Whether the
+  ///   output is HDR is reported by [OnSuccess.isHdr].
   /// * [background] — When provided, keeps the compression running while the
   ///   app is backgrounded or the screen is off. Behaviour and guarantees vary
   ///   per platform; see [BackgroundConfig]. Defaults to `null` (the OS may
@@ -169,6 +173,7 @@ class LightCompressor {
     bool? disableAudio = false,
     bool isMinBitrateCheckEnabled = true,
     VideoFormat videoFormat = VideoFormat.h264,
+    HdrMode hdrMode = HdrMode.toSdr,
     BackgroundConfig? background,
     AudioConfig? audio,
     VideoEdit? edit,
@@ -197,6 +202,7 @@ class LightCompressor {
         'videoName': video.videoName,
         'saveInGallery': ios.saveInGallery,
         'videoFormat': videoFormat.name,
+        'hdrMode': hdrMode.name,
         'background': background?.toMap(),
         'edit': edit?.toMap(),
         'debugLogging': debugLogging,
@@ -240,6 +246,7 @@ class LightCompressor {
         usedFormat: _videoFormatFromWire(response['usedFormat'] as String?),
         targetSizeMet: (response['targetSizeMet'] as bool?) ?? true,
         passesUsed: (response['passesUsed'] as num?)?.toInt() ?? 1,
+        isHdr: (response['isHdr'] as bool?) ?? false,
       );
     } else if (response['onFailure'] != null) {
       final String failureMessage = response['onFailure'] as String;
@@ -278,6 +285,7 @@ class LightCompressor {
   ///
   /// [videoFormat] selects the output codec for every video (defaults to
   /// [VideoFormat.h264]); see [compressVideo] for the H.265 fallback behaviour.
+  /// [hdrMode] applies to every HDR video in the batch; see [HdrMode].
   ///
   /// When [background] is provided the whole batch keeps running while the app
   /// is backgrounded or the screen is off; see [BackgroundConfig] for the
@@ -315,6 +323,7 @@ class LightCompressor {
     bool disableAudio = false,
     bool isMinBitrateCheckEnabled = true,
     VideoFormat videoFormat = VideoFormat.h264,
+    HdrMode hdrMode = HdrMode.toSdr,
     BackgroundConfig? background,
     AudioConfig? audio,
     VideoEdit? edit,
@@ -368,6 +377,7 @@ class LightCompressor {
       'audioSampleRate': audio?.sampleRate,
       'isMinBitrateCheckEnabled': isMinBitrateCheckEnabled,
       'videoFormat': videoFormat.name,
+      'hdrMode': hdrMode.name,
       'background': background?.toMap(),
       'edit': edit?.toMap(),
       'maxConcurrent': maxConcurrent,
@@ -406,6 +416,7 @@ class LightCompressor {
         usedFormat: _videoFormatFromWire(map['usedFormat'] as String?),
         targetSizeMet: (map['targetSizeMet'] as bool?) ?? true,
         passesUsed: (map['passesUsed'] as num?)?.toInt() ?? 1,
+        isHdr: (map['isHdr'] as bool?) ?? false,
       );
     } else if (map['onFailure'] != null) {
       return OnFailure(

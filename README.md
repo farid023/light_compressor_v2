@@ -58,7 +58,7 @@ Add the dependency:
 
 ```yaml
 dependencies:
-  light_compressor_v2: ^1.11.1
+  light_compressor_v2: ^1.12.0
 ```
 
 ```bash
@@ -437,13 +437,34 @@ try {
 
 ## HDR and other sources
 
-- **HDR video comes out as SDR.** Phones record HDR by default — an iPhone writes
-  10-bit HEVC in HLG with a Dolby Vision 8.4 layer. The compressed output is 8-bit,
-  so it is converted to SDR (BT.709) rather than left as an 8-bit file tagged HDR,
-  which many players show with banding or washed-out colour. iOS/macOS always
-  tone-map. Android tone-maps on Android 13+ where the decoder supports it;
-  elsewhere the picture is kept as-is in the SDR file and can look slightly flat.
-  Check `MediaInfo.isHdr` to know beforehand.
+- **HDR video comes out as SDR by default.** Phones record HDR by default — an
+  iPhone writes 10-bit HEVC in HLG with a Dolby Vision 8.4 layer. The default
+  output is 8-bit, so it is converted to SDR (BT.709) rather than left as an 8-bit
+  file tagged HDR, which many players show with banding or washed-out colour.
+  iOS/macOS always tone-map. Android tone-maps on Android 13+ where the decoder
+  supports it; elsewhere the picture is kept as-is in the SDR file and can look
+  slightly flat. Check `MediaInfo.isHdr` to know beforehand.
+- **Or keep it HDR (iOS/macOS).** Pass `hdrMode: HdrMode.keep` and an HDR source
+  is written as 10-bit HEVC (Main10) with its own colour — HLG, or PQ with its
+  HDR10 metadata. An iPhone recording comes out as Dolby Vision 8.4 again (the
+  encoder regenerates it). The output is HEVC even if `videoFormat` is `h264`.
+  `OnSuccess.isHdr` tells you whether it was kept: Android, devices without 10-bit
+  HEVC encoding, and colour adjustments fall back to SDR. Keep it for sharing
+  between devices that play HDR; SDR plays the same everywhere.
+
+  ```dart
+  final result = await LightCompressor().compressVideo(
+    path: path,
+    videoQuality: VideoQuality.medium,
+    hdrMode: HdrMode.keep,
+    video: Video(videoName: 'clip'),
+    android: AndroidConfig(),
+    ios: IOSConfig(),
+  );
+  if (result is OnSuccess && result.isHdr) {
+    // 10-bit HEVC with the source's HDR colour.
+  }
+  ```
 - **Dolby Vision on Android** decodes through its base layer (HEVC for profiles
   4, 7 and 8, AVC for 9), so it works on devices without a Dolby Vision decoder.
   Profile 5 has no compatible base layer and is not supported.
@@ -466,6 +487,7 @@ try {
 | `isMinBitrateCheckEnabled` | `bool` | | `true` | Skip compression when source bitrate is below 2 Mbps. |
 | `disableAudio` | `bool?` | | `false` | Strip the audio track from the output. |
 | `videoFormat` | `VideoFormat` | | `h264` | Output codec: `h264` or `h265` (HEVC). Falls back to H.264 when HEVC isn't supported. See [`VideoFormat`](#videoformat). |
+| `hdrMode` | `HdrMode` | | `toSdr` | What happens to an HDR source: tone-mapped to SDR, or kept as 10-bit HEVC (iOS/macOS). See [`HdrMode`](#hdrmode). |
 | `background` | `BackgroundConfig?` | | `null` | Keep running while the app is backgrounded. See [`BackgroundConfig`](#backgroundconfig). |
 | `audio` | `AudioConfig?` | | `null` | Re-encode the audio track as AAC. See [`AudioConfig`](#audioconfig). |
 | `edit` | `VideoEdit?` | | `null` | Trim, rotate and/or adjust colour while compressing. See [`VideoEdit`](#videoedit). |
@@ -488,6 +510,7 @@ try {
 | `disableAudio` | `bool` | | `false` | Strip the audio track from every output. |
 | `isMinBitrateCheckEnabled` | `bool` | | `true` | Skip compression when source bitrate is below 2 Mbps. |
 | `videoFormat` | `VideoFormat` | | `h264` | Output codec for every video: `h264` or `h265` (HEVC). See [`VideoFormat`](#videoformat). |
+| `hdrMode` | `HdrMode` | | `toSdr` | What happens to every HDR source in the batch. See [`HdrMode`](#hdrmode). |
 | `background` | `BackgroundConfig?` | | `null` | Keep the whole batch running while backgrounded. See [`BackgroundConfig`](#backgroundconfig). |
 | `audio` | `AudioConfig?` | | `null` | Re-encode the audio track as AAC. See [`AudioConfig`](#audioconfig). |
 | `edit` | `VideoEdit?` | | `null` | Trim, rotate and/or adjust colour on every video. See [`VideoEdit`](#videoedit). |
@@ -572,11 +595,20 @@ Output codec, written into an MP4/QuickTime container.
 | `h264` | H.264 / AVC. The widely compatible default. |
 | `h265` | H.265 / HEVC. More efficient (better quality per bit); **requires a hardware HEVC encoder** and automatically falls back to `h264` otherwise. Check [`OnSuccess.usedFormat`](#result-types) for the codec actually used. |
 
+### `HdrMode`
+
+What happens to an HDR source (HLG or PQ, incl. Dolby Vision). SDR sources are unaffected.
+
+| Value | Description |
+|-------|-------------|
+| `toSdr` | Tone-map to SDR (BT.709). The default; plays the same everywhere. |
+| `keep` | Keep the HDR: 10-bit HEVC (Main10) with the source's colour, on iOS/macOS. The codec becomes HEVC even if `videoFormat` is `h264`. Falls back to SDR on Android, on devices without 10-bit HEVC encoding, and with colour adjustments — check [`OnSuccess.isHdr`](#result-types). |
+
 ### `Result` types
 
 | Type | Properties | Description |
 |------|-----------|-------------|
-| `OnSuccess` | `destinationPath: String`, `originalSize: int`, `compressedSize: int`, `duration: double`, `ratio: double`, `usedFormat: VideoFormat`, `targetSizeMet: bool`, `passesUsed: int` | Output path, byte sizes, duration (seconds), percentage size reduction, the codec actually used, whether a requested `targetSizeMb` was achievable (`true` when no target was set), and how many encoding passes ran (1 or 2). |
+| `OnSuccess` | `destinationPath: String`, `originalSize: int`, `compressedSize: int`, `duration: double`, `ratio: double`, `usedFormat: VideoFormat`, `targetSizeMet: bool`, `passesUsed: int`, `isHdr: bool` | Output path, byte sizes, duration (seconds), percentage size reduction, the codec actually used, whether a requested `targetSizeMb` was achievable (`true` when no target was set), how many encoding passes ran (1 or 2), and whether the output is HDR (only with [`HdrMode.keep`](#hdrmode)). |
 | `OnFailure` | `message: String`, `failureType: CompressionFailureType` | A failure: a human-readable `message` plus a [`CompressionFailureType`](#compressionfailuretype) category for reacting in code without parsing text. |
 | `OnCancelled` | `isCancelled: bool` | Compression was cancelled via `cancelCompression()`. |
 
@@ -612,7 +644,7 @@ All fields are nullable — a container/device may not expose every value.
 | `rotation` | `int?` | Rotation in degrees (`0`, `90`, `180`, `270`). |
 | `frameRate` | `double?` | Frames per second. |
 | `mimeType` | `String?` | Container MIME type. |
-| `isHdr` | `bool?` | `true` for HDR video (HLG or PQ transfer, incl. Dolby Vision). Compressed output is always SDR — see [HDR and other sources](#hdr-and-other-sources). |
+| `isHdr` | `bool?` | `true` for HDR video (HLG or PQ transfer, incl. Dolby Vision). Compressed output is SDR unless [`HdrMode.keep`](#hdrmode) — see [HDR and other sources](#hdr-and-other-sources). |
 
 ### `CompressionEstimate` (from `getCompressionEstimate`)
 

@@ -19,29 +19,15 @@ import 'package:light_compressor_v2/light_compressor_v2.dart';
 
 import 'support.dart';
 
-/// The bytes of the first [tag] box's body, or null when the file has none.
-Uint8List? _boxBody(Uint8List bytes, String tag) {
-  final List<int> t = tag.codeUnits;
-  for (int i = 4; i + 4 <= bytes.length; i++) {
-    if (bytes[i] == t[0] &&
-        bytes[i + 1] == t[1] &&
-        bytes[i + 2] == t[2] &&
-        bytes[i + 3] == t[3]) {
-      return Uint8List.sublistView(bytes, i + 4);
-    }
-  }
-  return null;
-}
-
 /// The level the output declares: H.264 `level_idc` (for example 40 = 4.0)
 /// or HEVC `general_level_idc` (30 x level, for example 120 = 4.0).
 int _declaredLevel(String path, VideoFormat format) {
   final Uint8List bytes = File(path).readAsBytesSync();
   if (format == VideoFormat.h264) {
-    final Uint8List avcC = _boxBody(bytes, 'avcC')!;
+    final Uint8List avcC = mp4BoxBody(bytes, 'avcC')!;
     return avcC[3];
   }
-  final Uint8List hvcC = _boxBody(bytes, 'hvcC')!;
+  final Uint8List hvcC = mp4BoxBody(bytes, 'hvcC')!;
   return hvcC[12];
 }
 

@@ -335,6 +335,91 @@ void main() {
       expect((results.first as OnSuccess).usedFormat, VideoFormat.h265);
     });
 
+    test('compressVideo forwards hdrMode (defaults to toSdr)', () async {
+      mockedResponse = jsonEncode({'onSuccess': '/path/to/output.mp4'});
+
+      await compressor.compressVideo(
+        path: '/path/to/input.mp4',
+        videoQuality: VideoQuality.medium,
+        video: Video(videoName: 'output.mp4'),
+        android: AndroidConfig(),
+        ios: IOSConfig(),
+      );
+
+      final arguments = log.first.arguments as Map<dynamic, dynamic>;
+      expect(arguments['hdrMode'], 'toSdr');
+    });
+
+    test('compressVideo forwards hdrMode keep when requested', () async {
+      mockedResponse = jsonEncode({'onSuccess': '/path/to/output.mp4'});
+
+      await compressor.compressVideo(
+        path: '/path/to/input.mp4',
+        videoQuality: VideoQuality.medium,
+        hdrMode: HdrMode.keep,
+        video: Video(videoName: 'output.mp4'),
+        android: AndroidConfig(),
+        ios: IOSConfig(),
+      );
+
+      final arguments = log.first.arguments as Map<dynamic, dynamic>;
+      expect(arguments['hdrMode'], 'keep');
+    });
+
+    test('compressVideo parses isHdr into OnSuccess', () async {
+      mockedResponse = jsonEncode({
+        'onSuccess': '/path/to/output.mp4',
+        'usedFormat': 'h265',
+        'isHdr': true,
+      });
+
+      final result = await compressor.compressVideo(
+        path: '/path/to/input.mp4',
+        videoQuality: VideoQuality.medium,
+        hdrMode: HdrMode.keep,
+        video: Video(videoName: 'output.mp4'),
+        android: AndroidConfig(),
+        ios: IOSConfig(),
+      );
+
+      expect((result as OnSuccess).isHdr, isTrue);
+    });
+
+    test('compressVideo defaults isHdr to false when absent', () async {
+      mockedResponse = jsonEncode({'onSuccess': '/path/to/output.mp4'});
+
+      final result = await compressor.compressVideo(
+        path: '/path/to/input.mp4',
+        videoQuality: VideoQuality.medium,
+        video: Video(videoName: 'output.mp4'),
+        android: AndroidConfig(),
+        ios: IOSConfig(),
+      );
+
+      expect((result as OnSuccess).isHdr, isFalse);
+    });
+
+    test('compressVideos forwards hdrMode and parses isHdr', () async {
+      batchResponse = <Map<String, dynamic>>[
+        {'onSuccess': '/out0.mp4', 'usedFormat': 'h265', 'isHdr': true},
+        {'onSuccess': '/out1.mp4'},
+      ];
+
+      final results = await compressor.compressVideos(
+        paths: ['/a.mp4', '/b.mp4'],
+        videoNames: ['out0.mp4', 'out1.mp4'],
+        videoQuality: VideoQuality.medium,
+        hdrMode: HdrMode.keep,
+        android: AndroidConfig(),
+        ios: IOSConfig(),
+      );
+
+      final arguments = log.last.arguments as Map<dynamic, dynamic>;
+      expect(arguments['hdrMode'], 'keep');
+      expect((results[0] as OnSuccess).isHdr, isTrue);
+      expect((results[1] as OnSuccess).isHdr, isFalse);
+    });
+
     test('compressVideo returns OnSuccess when successful', () async {
       mockedResponse = jsonEncode({
         'onSuccess': '/path/to/output.mp4',
