@@ -1,5 +1,11 @@
 # Changelog
 
+# 1.12.0
+
+### New
+
+- **Keep HDR on iOS/macOS ([#29](https://github.com/Farid023/light_compressor_v2/issues/29)):** pass `hdrMode: HdrMode.keep` and an HDR source is written as 10-bit HEVC (Main10) with its own colour (HLG, or PQ with its HDR10 metadata) instead of being tone-mapped to SDR. An iPhone recording comes out as Dolby Vision 8.4 again: the encoder regenerates it. The output is HEVC even when `videoFormat` is `h264`. The new `OnSuccess.isHdr` tells whether HDR was kept. It falls back to SDR on Android, on devices without 10-bit HEVC encoding, and with colour adjustments. The default stays `HdrMode.toSdr`. Thanks [@khlebobul](https://github.com/khlebobul) for raising it.
+
 # 1.11.1
 
 ### Fixed

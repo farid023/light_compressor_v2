@@ -63,7 +63,8 @@ plugin:
 **Result maps** (what the natives send back; parsed by `_resultFromMap` in
 [`lib/src/light_compressor.dart`](lib/src/light_compressor.dart)):
 
-- success → `{ onSuccess: <path>, originalSize, compressedSize, duration, usedFormat: "h264"|"h265", targetSizeMet, passesUsed, index }`
+- success → `{ onSuccess: <path>, originalSize, compressedSize, duration, usedFormat: "h264"|"h265", targetSizeMet, passesUsed, isHdr, index }`
+  (`isHdr` is `true` only when HDR was kept; Android always sends `false`)
 - failure → `{ onFailure: <message>, failureType: "permission"|"unsupported"|"notFound"|"unknown", index }`
 - cancelled → `{ onCancelled: true }`
 
@@ -159,15 +160,23 @@ Dart `_failureTypeFromWire` / `_exceptionFor`. **Change one, change all four.**
   `CIColorControls` video composition — so cross-platform pixel parity is not
   guaranteed; the no-colour path stays a cheap no-op (identity uniforms / the
   plain track output).
-- **HDR in, SDR out.** Output is always 8-bit, so an HDR source (HLG/PQ, incl.
-  an iPhone's Dolby Vision 8.4) must come out tone-mapped and tagged BT.709 —
-  never 8-bit with the source's HLG/PQ tags. Apple reads such a source straight
+- **HDR in, SDR out — unless kept.** By default (`HdrMode.toSdr`) output is
+  8-bit, so an HDR source (HLG/PQ, incl. an iPhone's Dolby Vision 8.4) must come
+  out tone-mapped and tagged BT.709 — never 8-bit with the source's HLG/PQ tags. Apple reads such a source straight
   into BT.709 (reader output + writer + colour composition); Android asks the
   decoder to tone-map (`KEY_COLOR_TRANSFER_REQUEST`, API 33+, honoured where
   supported) and always writes SDR tags. SDR sources keep the untouched path.
   A Dolby Vision track decodes through its HEVC/AVC base layer when the device
   has no Dolby Vision decoder (`CompressorUtils.remapDolbyVisionForDecoding`) —
   otherwise Android fails outright on every iPhone HDR clip.
+  `HdrMode.keep` (Apple only) instead reads 10-bit
+  (`420YpCbCr10BiPlanar`, no colour conversion) and writes HEVC Main10 with the
+  source's colour tags, plus a PQ source's HDR10 static metadata; the codec is
+  forced to HEVC. Dolby Vision is **never copied** (a `dvvC` without per-frame
+  RPUs would be the same bug as 8-bit with HLG tags) — VideoToolbox regenerates
+  DV 8.4 for an HLG output itself. It falls back to SDR when the encoder can't do
+  Main10 (`canEncodeHDR`, VideoToolbox's profile list), with colour adjustments,
+  and on Android; `OnSuccess.isHdr` reports the outcome.
 - **Audio in the .mp4 is AAC.** With no `AudioConfig`, AAC source audio is copied
   through; Apple re-encodes any other format (e.g. `.mov` PCM) instead of
   copying it into the .mp4. Android's `MediaExtractor` cannot read QuickTime
@@ -196,7 +205,7 @@ encodes/decodes the channel contract.
   and `_mapPlatformException` (the introspection methods); and the `VideoQuality` enum.
 - **[`src/compression_result.dart`](lib/src/compression_result.dart)** — the
   `Result` type and its `OnSuccess` / `OnFailure` / `OnCancelled` subtypes (the
-  `OnSuccess` carries `usedFormat`, `targetSizeMet`, and `passesUsed`), plus
+  `OnSuccess` carries `usedFormat`, `targetSizeMet`, `passesUsed` and `isHdr`), plus
   the `CompressionFailureType` enum.
 - **[`src/compression_progress.dart`](lib/src/compression_progress.dart)** — the
   `CompressionProgress` model (`percent` + `bytesProcessed` / `etaMs` /
@@ -224,7 +233,8 @@ encodes/decodes the channel contract.
   `brightness` / `contrast` / `saturation` (clamped in `toMap()`); the top-level
   `edit:` param on both entry points),
   [`src/video_format.dart`](lib/src/video_format.dart)
-  (`VideoFormat { h264, h265 }`),
+  (`VideoFormat { h264, h265 }`), [`src/hdr_mode.dart`](lib/src/hdr_mode.dart)
+  (`HdrMode { toSdr, keep }`),
   [`src/android_config.dart`](lib/src/android_config.dart) (`AndroidConfig` +
   `SaveAt`), [`src/ios_config.dart`](lib/src/ios_config.dart) (`IOSConfig`),
   [`src/background_config.dart`](lib/src/background_config.dart) (`BackgroundConfig`
@@ -233,7 +243,8 @@ encodes/decodes the channel contract.
 **Behaviour to preserve:**
 
 - **Argument-map keys are the contract.** The keys passed to `invokeMethod`
-  (`videoName`, `isMinBitrateCheckEnabled`, `saveAt`, `videoFormat`, `background`,
+  (`videoName`, `isMinBitrateCheckEnabled`, `saveAt`, `videoFormat`, `hdrMode`
+  (`"toSdr"`/`"keep"`), `background`,
   the output-control keys `targetSizeBytes` / `videoFps` / `audioBitrate` /
   `audioSampleRate` / `twoPass`, the nested `edit` map
   (`trimStartMs` / `trimEndMs` / `rotationDegrees`), the batch-only
@@ -478,9 +489,11 @@ The demo app is also the only place the native pipeline runs end-to-end.
     — input-variety coverage: no-audio, rotated, and HEVC *input* clips (each
     derived from the sample via the plugin's own pipeline).
   - [`integration_test/hdr_test.dart`](example/integration_test/hdr_test.dart)
-    — an iPhone-style HDR source (10-bit HEVC, HLG, Dolby Vision 8.4):
-    `MediaInfo.isHdr`, compression to SDR in both codecs (output `isHdr ==
-    false`), and a thumbnail.
+    — iPhone-style HDR sources (10-bit HEVC, HLG with Dolby Vision 8.4, and PQ):
+    `MediaInfo.isHdr`, compression to SDR by default (output `isHdr == false`),
+    `HdrMode.keep` (Main10 with the source's HLG/PQ tags, read from `colr` /
+    `hvcC` / `dvvC` via `readMp4VideoFacts`; SDR on Android, with colour
+    adjustments, and for SDR sources), and a thumbnail.
   - [`integration_test/output_format_test.dart`](example/integration_test/output_format_test.dart)
     — the output's shape: a 1080p source kept at its resolution stays 1920×1080,
     a scaled preset keeps the aspect ratio, and the declared codec level (read from
@@ -501,9 +514,10 @@ The demo app is also the only place the native pipeline runs end-to-end.
     cleanly when it is absent or still the committed placeholder** (anything under
     ~5 KB is treated as the placeholder). The clip is excluded from the published
     package — see `.pubignore`. `sample.mp4` is video-only; the other fixtures
-    carry what it lacks — `sample_audio.mp4` (AAC), `sample_pcm.mov` (PCM audio)
-    and `sample_hdr.mp4` (HDR). The last two are generated natively on macOS by
-    the AVFoundation scripts in `integration_test/tools/` (no ffmpeg).
+    carry what it lacks — `sample_audio.mp4` (AAC), `sample_pcm.mov` (PCM audio),
+    `sample_hdr.mp4` (HLG + Dolby Vision 8.4) and `sample_hdr_pq.mp4` (PQ /
+    HDR10). The last three are generated natively on macOS by the AVFoundation
+    scripts in `integration_test/tools/` (no ffmpeg).
 
 ---
 
