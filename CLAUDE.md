@@ -93,6 +93,32 @@ Dart `_failureTypeFromWire` / `_exceptionFor`. **Change one, change all four.**
   single-compress path guards with `replyOnce` (an `AtomicBoolean` on Android, a
   `didReply` flag on Apple); batch de-dups per index (`results[index] == null`).
   Never add a path that can reply twice — it crashes the engine.
+- **…and every video replies at least once.** On Android each video's terminal
+  callback goes through a `TerminalReport`, and `reportIfUnreported` covers the
+  job's completion: a coroutine cancelled before it is dispatched never runs its
+  body (try/catch included), which once left a batch slot empty and hung
+  `compressVideos` after a cancel.
+- **A stuck codec fails, it never hangs.** Android's `StallWatchdog` fails the
+  video loop (and the AAC re-encode, which then falls back to passthrough) after
+  30 s without a codec buffer; Apple runs a timer per pass that fails it after 30 s
+  without a read (the final `finishWriting` is not watched). The Apple timer must
+  **never** touch an `AVAssetReader` from its own thread — cancelling a reader
+  during an in-flight `copyNextSampleBuffer` crashes — so the loops wind down on
+  their own queues (`abandonIfStalled`).
+- **Output size never distorts the picture.** Android rounds each side to the
+  encoder's own alignment (`alignOutputSize`, at least even) and falls back to
+  multiples of 16 only when the encoder rejects that size; Apple's presets use one
+  scale for both sides and round to even. (Rounding to 16 turned 1080 into 1088.)
+- **The declared codec level is the lowest that fits** the output's size, frame
+  rate and bitrate (`CodecLevels.kt`, H.264 Table A-1 / HEVC Table A.8), taken from
+  the encoder that actually runs (`CompressorUtils.defaultEncoderCapabilities`) —
+  never the highest any encoder advertises. Some encoders still pick their own
+  (the Mi 8's HEVC encoder always writes 5.0).
+- **Failure text can change how Dart reports it.** `_exceptionFor` classifies an
+  `unknown` failure by words in its message (`codec`, `format`, `track`,
+  `permission`, `not found`, …) and *throws* instead of returning `OnFailure`. Keep
+  new native failure text free of those words unless it should throw
+  (`describeFailure` and the stall messages are worded for that).
 - **Batch order + resilience.** Results return in the same order as the input
   `paths`, and one video failing must never abort the others (its slot becomes an
   `OnFailure`). Verified by the *batch resilience* group in
@@ -298,9 +324,18 @@ a vendored fork of the LightCompressor library:
   path, drawn into an RGBA `ImageReader`.
 - [`utils/`](android/src/main/kotlin/com/gurfdev/light_compressor_v2/lightcompressorlibrary/utils/)
   — `CompressorUtils.kt` (bitrate / codec-capability / track helpers: `getBitrate`,
-  `findTrack`, `isHevcHardwareEncoderAvailable`, `setOutputFileParameters`, …),
+  `findTrack`, `isHevcHardwareEncoderAvailable`, `setOutputFileParameters`,
+  `defaultEncoderCapabilities`, `encoderOutputSize`, …),
   `FileUtils.kt` (the `saveVideoInExternal` MediaStore writer used by shared
-  storage), `NumbersUtils.kt` (dimension rounding).
+  storage), `NumbersUtils.kt` (dimension rounding, `alignOutputSize`),
+  `CodecLevels.kt` (lowest fitting H.264 / HEVC level), `StallWatchdog.kt`
+  (no-progress guard for the codec loops), `FailureMessages.kt`
+  (`describeFailure`). `TerminalReport.kt` (next to `VideoCompressor.kt`) is the
+  exactly-once terminal-callback guard.
+- **Unit tests** — [`android/src/test/kotlin/`](android/src/test/kotlin/) (JUnit,
+  test-only dependency): the pure logic above — levels, output size, the stall
+  watchdog, failure text, and the terminal report (including a job cancelled before
+  it is dispatched). Run through the example app's Gradle (see Common commands).
 - [`CompressionInterface.kt`](android/src/main/kotlin/com/gurfdev/light_compressor_v2/lightcompressorlibrary/CompressionInterface.kt)
   — the threading-annotated `CompressionListener` and the `CompressionErrorType`
   enum with `toWireValue()` (the source of the `failureType` strings).
@@ -446,6 +481,10 @@ The demo app is also the only place the native pipeline runs end-to-end.
     — an iPhone-style HDR source (10-bit HEVC, HLG, Dolby Vision 8.4):
     `MediaInfo.isHdr`, compression to SDR in both codecs (output `isHdr ==
     false`), and a thumbnail.
+  - [`integration_test/output_format_test.dart`](example/integration_test/output_format_test.dart)
+    — the output's shape: a 1080p source kept at its resolution stays 1920×1080,
+    a scaled preset keeps the aspect ratio, and the declared codec level (read from
+    `avcC` / `hvcC`) fits 1080p.
   - [`integration_test/background_test.dart`](example/integration_test/background_test.dart)
     — `BackgroundConfig`: a background compression that fails at once (and
     one right after a successful run) must not crash the app — on Android
@@ -475,6 +514,10 @@ The demo app is also the only place the native pipeline runs end-to-end.
 flutter test
 flutter test test/models_test.dart                   # one file
 flutter test --plain-name "keeps input order"         # one test by name
+
+# Android (Kotlin) unit tests — pure engine logic, JVM only (CI runs these too).
+cd example/android && ./gradlew :light_compressor_v2:testDebugUnitTest
+# results: example/build/light_compressor_v2/test-results/testDebugUnitTest/
 
 # Static analysis + formatting (CI gates; both must be clean).
 flutter analyze
