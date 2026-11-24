@@ -131,6 +131,7 @@ public struct LightCompressor {
             public let videoFps: Int?
             public let audioBitrate: Int?
             public let audioSampleRate: Int?
+            public let audioDownmixToStereo: Bool
             public let disableAudio: Bool
             public let keepOriginalResolution: Bool
             public let videoSize: CGSize?
@@ -164,6 +165,7 @@ public struct LightCompressor {
                 videoFps: Int? = nil,
                 audioBitrate: Int? = nil,
                 audioSampleRate: Int? = nil,
+                audioDownmixToStereo: Bool = false,
                 twoPass: Bool = false,
                 trimStartMs: Int? = nil,
                 trimEndMs: Int? = nil,
@@ -181,6 +183,7 @@ public struct LightCompressor {
                 self.videoFps = videoFps
                 self.audioBitrate = audioBitrate
                 self.audioSampleRate = audioSampleRate
+                self.audioDownmixToStereo = audioDownmixToStereo
                 self.disableAudio = disableAudio
                 self.keepOriginalResolution = keepOriginalResolution
                 self.videoSize = videoSize
@@ -901,6 +904,7 @@ public struct LightCompressor {
         let reEncodeAudio = !configuration.disableAudio
             && (configuration.audioBitrate != nil
                 || configuration.audioSampleRate != nil
+                || configuration.audioDownmixToStereo
                 || !sourceAudioIsAAC)
         var audioWriterInput: AVAssetWriterInput?
         var audioReader: AVAssetReader?
@@ -927,12 +931,11 @@ public struct LightCompressor {
                 if let bitrate = configuration.audioBitrate {
                     aac[AVEncoderBitRateKey] = bitrate
                 }
-                // Decode to PCM before re-encoding. Downmix only when the
-                // AAC writer cannot use the source's multichannel layout.
+                // Decode to PCM and match the AAC writer's channel count.
                 var pcm: [String: Any] = [AVFormatIDKey: Int(kAudioFormatLinearPCM)]
                 if channels > 2 {
                     var layoutSize = 0
-                    if let description,
+                    if !configuration.audioDownmixToStereo, let description,
                        let layout = CMAudioFormatDescriptionGetChannelLayout(description, sizeOut: &layoutSize),
                        layoutSize > 0 {
                         aac[AVChannelLayoutKey] = Data(bytes: layout, count: layoutSize)
@@ -1190,7 +1193,12 @@ public struct LightCompressor {
                                 }
                                 isFirstBuffer = false
                             }
-                            audioWriterInput.append(audioBuffer)
+                            if !audioWriterInput.append(audioBuffer), let error = videoWriter.error {
+                                audioReader.cancelReading()
+                                if videoWriter.status == .writing { videoWriter.cancelWriting() }
+                                replyOnce(.failure(CompressionError(title: error.localizedDescription)))
+                                return
+                            }
                         }
                     }
                     return

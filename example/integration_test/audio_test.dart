@@ -101,6 +101,21 @@ void main() {
         reason: 'the one-second clip should contain compressed audio');
   });
 
+  testWidgets('explicit stereo downmix re-encodes 5.1 PCM', (tester) async {
+    if (!Platform.isIOS && !Platform.isMacOS) {
+      return markTestSkipped('Requires AVFoundation');
+    }
+    final source = await prepareSurroundAudioSource();
+    expect(source, isNotNull, reason: 'The 5.1 PCM fixture must be bundled');
+    final audioBytes = await audioTrackBytes(
+      source!,
+      'lc_it_surround_stereo',
+      audio: const AudioConfig(bitrate: 128000, downmixToStereo: true),
+    );
+    expect(audioBytes, inInclusiveRange(3000, 100000),
+        reason: 'the one-second clip should contain compressed audio');
+  });
+
   group('non-AAC source audio (real device)', () {
     // PCM has no place in a standard .mp4, so the default passthrough path has
     // to re-encode it to AAC. Without that, Apple copied the raw PCM into the

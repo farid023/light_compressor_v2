@@ -2,7 +2,13 @@
 
 # Unreleased
 
+### New
+
+- **iOS/macOS stereo downmix.** Set `AudioConfig(downmixToStereo: true)` to convert multichannel audio to stereo before AAC encoding.
+
 ### Fixed
+
+- **iOS/macOS.** Compression reports a writer error immediately when an audio append fails.
 
 - **iOS/macOS: fixed a crash when re-encoding multichannel audio to AAC.** The encoder now receives the source channel layout. Audio is downmixed to stereo if the layout is missing or the encoder rejects it.
 

@@ -1492,7 +1492,7 @@ void main() {
 
     // --- Phase 8c: audio controls ---
 
-    test('compressVideo forwards audio bitrate and sample rate', () async {
+    test('compressVideo forwards audio encoding settings', () async {
       mockedResponse = jsonEncode({'onSuccess': '/path/to/output.mp4'});
 
       await compressor.compressVideo(
@@ -1501,12 +1501,17 @@ void main() {
         video: Video(videoName: 'output.mp4'),
         android: AndroidConfig(),
         ios: IOSConfig(),
-        audio: const AudioConfig(bitrate: 96000, sampleRate: 44100),
+        audio: const AudioConfig(
+          bitrate: 96000,
+          sampleRate: 44100,
+          downmixToStereo: true,
+        ),
       );
 
       final arguments = log.first.arguments as Map<dynamic, dynamic>;
       expect(arguments['audioBitrate'], 96000);
       expect(arguments['audioSampleRate'], 44100);
+      expect(arguments['audioDownmixToStereo'], isTrue);
     });
 
     test('compressVideo sends null audio fields when not requested', () async {
@@ -1524,6 +1529,7 @@ void main() {
       expect(arguments.containsKey('audioBitrate'), isTrue);
       expect(arguments['audioBitrate'], isNull);
       expect(arguments['audioSampleRate'], isNull);
+      expect(arguments.containsKey('audioDownmixToStereo'), isFalse);
     });
 
     test('compressVideos forwards audio config', () async {
@@ -1537,12 +1543,13 @@ void main() {
         videoQuality: VideoQuality.medium,
         android: AndroidConfig(),
         ios: IOSConfig(),
-        audio: const AudioConfig(bitrate: 64000),
+        audio: const AudioConfig(bitrate: 64000, downmixToStereo: true),
       );
 
       final args = log.last.arguments as Map<dynamic, dynamic>;
       expect(args['audioBitrate'], 64000);
       expect(args['audioSampleRate'], isNull);
+      expect(args['audioDownmixToStereo'], isTrue);
     });
 
     // --- Phase 9a/9b: trim & rotate ---
