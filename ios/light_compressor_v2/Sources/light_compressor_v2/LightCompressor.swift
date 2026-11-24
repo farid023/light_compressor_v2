@@ -131,6 +131,7 @@ public struct LightCompressor {
             public let videoFps: Int?
             public let audioBitrate: Int?
             public let audioSampleRate: Int?
+            public let audioDownmixToStereo: Bool
             public let disableAudio: Bool
             public let keepOriginalResolution: Bool
             public let videoSize: CGSize?
@@ -164,6 +165,7 @@ public struct LightCompressor {
                 videoFps: Int? = nil,
                 audioBitrate: Int? = nil,
                 audioSampleRate: Int? = nil,
+                audioDownmixToStereo: Bool = false,
                 twoPass: Bool = false,
                 trimStartMs: Int? = nil,
                 trimEndMs: Int? = nil,
@@ -181,6 +183,7 @@ public struct LightCompressor {
                 self.videoFps = videoFps
                 self.audioBitrate = audioBitrate
                 self.audioSampleRate = audioSampleRate
+                self.audioDownmixToStereo = audioDownmixToStereo
                 self.disableAudio = disableAudio
                 self.keepOriginalResolution = keepOriginalResolution
                 self.videoSize = videoSize
@@ -901,6 +904,7 @@ public struct LightCompressor {
         let reEncodeAudio = !configuration.disableAudio
             && (configuration.audioBitrate != nil
                 || configuration.audioSampleRate != nil
+                || configuration.audioDownmixToStereo
                 || !sourceAudioIsAAC)
         var audioWriterInput: AVAssetWriterInput?
         var audioReader: AVAssetReader?
@@ -912,8 +916,8 @@ public struct LightCompressor {
                 // Default channels + sample rate from the source track.
                 var channels = 2
                 var srcSampleRate = 44100.0
-                let descs = audioTrack.formatDescriptions as! [CMAudioFormatDescription]
-                if let desc = descs.first,
+                let description = (audioTrack.formatDescriptions as? [CMAudioFormatDescription])?.first
+                if let desc = description,
                     let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(
                         desc)?.pointee {
                     if asbd.mChannelsPerFrame > 0 { channels = Int(asbd.mChannelsPerFrame) }
@@ -927,9 +931,28 @@ public struct LightCompressor {
                 if let bitrate = configuration.audioBitrate {
                     aac[AVEncoderBitRateKey] = bitrate
                 }
+                // Decode to PCM and match the AAC writer's channel count.
+                var pcm: [String: Any] = [AVFormatIDKey: Int(kAudioFormatLinearPCM)]
+                if channels > 2 {
+                    var layoutSize = 0
+                    if !configuration.audioDownmixToStereo, let description,
+                       let layout = CMAudioFormatDescriptionGetChannelLayout(description, sizeOut: &layoutSize),
+                       layoutSize > 0 {
+                        aac[AVChannelLayoutKey] = Data(bytes: layout, count: layoutSize)
+                    }
+                    if aac[AVChannelLayoutKey] == nil ||
+                       !videoWriter.canApply(outputSettings: aac, forMediaType: .audio) {
+                        aac.removeValue(forKey: AVChannelLayoutKey)
+                        aac[AVNumberOfChannelsKey] = 2
+                        pcm[AVNumberOfChannelsKey] = 2
+                    }
+                }
+                guard videoWriter.canApply(outputSettings: aac, forMediaType: .audio) else {
+                    onPassComplete(.failure(CompressionError(title: "Unsupported AAC audio settings")))
+                    return
+                }
                 writerSettings = aac
-                // The reader must decompress to PCM so the writer can re-encode.
-                readerSettings = [AVFormatIDKey: Int(kAudioFormatLinearPCM)]
+                readerSettings = pcm
             }
             let input: AVAssetWriterInput
             if let writerSettings {
@@ -1170,7 +1193,12 @@ public struct LightCompressor {
                                 }
                                 isFirstBuffer = false
                             }
-                            audioWriterInput.append(audioBuffer)
+                            if !audioWriterInput.append(audioBuffer), let error = videoWriter.error {
+                                audioReader.cancelReading()
+                                if videoWriter.status == .writing { videoWriter.cancelWriting() }
+                                replyOnce(.failure(CompressionError(title: error.localizedDescription)))
+                                return
+                            }
                         }
                     }
                     return

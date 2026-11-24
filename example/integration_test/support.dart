@@ -65,6 +65,10 @@ Future<String?> prepareAudioSampleSource() =>
 Future<String?> preparePcmAudioSource() =>
     _prepareAsset(kPcmAudioSampleAssetKey, 'source_pcm.mov');
 
+/// Short clip with six channels of synthetic PCM audio.
+Future<String?> prepareSurroundAudioSource() => _prepareAsset(
+    'integration_test/assets/sample_surround.mov', 'source_surround.mov');
+
 /// Same as [prepareSampleSource] for the HDR clip.
 Future<String?> prepareHdrSampleSource() =>
     _prepareAsset(kHdrSampleAssetKey, 'source_hdr.mp4');

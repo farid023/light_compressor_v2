@@ -564,6 +564,7 @@ Re-encodes the audio track as AAC. Passed as `audio:` to `compressVideo` / `comp
 |-----------|------|:--------:|---------|-------------|
 | `bitrate` | `int?` | | `null` | Target AAC bitrate in **bits per second** (e.g. `128000`). Must be `> 0`. |
 | `sampleRate` | `int?` | | `null` | Target sample rate in Hz. **iOS/macOS only** — on Android the audio is re-encoded at the source sample rate (no resampler). Must be `> 0`. |
+| `downmixToStereo` | `bool` | | `false` | On iOS/macOS, downmix inputs with more than two channels to stereo before AAC encoding. |
 
 ### `AndroidConfig`
 

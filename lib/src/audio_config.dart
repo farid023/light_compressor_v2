@@ -7,11 +7,14 @@
 class AudioConfig {
   /// Creates an [AudioConfig].
   ///
-  /// Both fields are optional; a `null` field leaves that aspect of the audio
+  /// A `null` bitrate or sample rate leaves that aspect of the audio
   /// unchanged (the source value is used). Provided values must be greater
   /// than 0.
-  const AudioConfig({this.bitrate, this.sampleRate})
-      : assert(
+  const AudioConfig({
+    this.bitrate,
+    this.sampleRate,
+    this.downmixToStereo = false,
+  })  : assert(
             bitrate == null || bitrate > 0, 'bitrate must be greater than 0'),
         assert(
           sampleRate == null || sampleRate > 0,
@@ -23,4 +26,7 @@ class AudioConfig {
 
   /// Target audio sample rate in hertz (e.g. `44100`).
   final int? sampleRate;
+
+  /// Downmix audio with more than two channels on iOS and macOS.
+  final bool downmixToStereo;
 }
