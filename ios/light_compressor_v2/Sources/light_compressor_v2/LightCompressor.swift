@@ -912,8 +912,8 @@ public struct LightCompressor {
                 // Default channels + sample rate from the source track.
                 var channels = 2
                 var srcSampleRate = 44100.0
-                let descs = audioTrack.formatDescriptions as! [CMAudioFormatDescription]
-                if let desc = descs.first,
+                let description = (audioTrack.formatDescriptions as? [CMAudioFormatDescription])?.first
+                if let desc = description,
                     let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(
                         desc)?.pointee {
                     if asbd.mChannelsPerFrame > 0 { channels = Int(asbd.mChannelsPerFrame) }
@@ -927,9 +927,29 @@ public struct LightCompressor {
                 if let bitrate = configuration.audioBitrate {
                     aac[AVEncoderBitRateKey] = bitrate
                 }
+                // Decode to PCM before re-encoding. Downmix only when the
+                // AAC writer cannot use the source's multichannel layout.
+                var pcm: [String: Any] = [AVFormatIDKey: Int(kAudioFormatLinearPCM)]
+                if channels > 2 {
+                    var layoutSize = 0
+                    if let description,
+                       let layout = CMAudioFormatDescriptionGetChannelLayout(description, sizeOut: &layoutSize),
+                       layoutSize > 0 {
+                        aac[AVChannelLayoutKey] = Data(bytes: layout, count: layoutSize)
+                    }
+                    if aac[AVChannelLayoutKey] == nil ||
+                       !videoWriter.canApply(outputSettings: aac, forMediaType: .audio) {
+                        aac.removeValue(forKey: AVChannelLayoutKey)
+                        aac[AVNumberOfChannelsKey] = 2
+                        pcm[AVNumberOfChannelsKey] = 2
+                    }
+                }
+                guard videoWriter.canApply(outputSettings: aac, forMediaType: .audio) else {
+                    onPassComplete(.failure(CompressionError(title: "Unsupported AAC audio settings")))
+                    return
+                }
                 writerSettings = aac
-                // The reader must decompress to PCM so the writer can re-encode.
-                readerSettings = [AVFormatIDKey: Int(kAudioFormatLinearPCM)]
+                readerSettings = pcm
             }
             let input: AVAssetWriterInput
             if let writerSettings {

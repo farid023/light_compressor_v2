@@ -1,5 +1,11 @@
 # Changelog
 
+# Unreleased
+
+### Fixed
+
+- **iOS/macOS: fixed a crash when re-encoding multichannel audio to AAC.** The encoder now receives the source channel layout. Audio is downmixed to stereo if the layout is missing or the encoder rejects it.
+
 # 1.12.0
 
 ### New

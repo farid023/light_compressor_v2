@@ -3,6 +3,10 @@ analyzer:
     - lib/basic_api/**
     - lib/generated/**
     - test/**
+    - build/**
+    - android/**
+    - ios/**
+    - macos/**
 
   strong-mode:
     implicit-dynamic: false
